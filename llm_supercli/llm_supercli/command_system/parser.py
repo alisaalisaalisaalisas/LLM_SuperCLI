@@ -35,7 +35,8 @@ class CommandParser:
     
     def __init__(self) -> None:
         """Initialize the parser."""
-        self._file_pattern = re.compile(rf'{FILE_PREFIX}(\S+)')
+        # Match @file or file:path
+        self._file_pattern = re.compile(r'(?:@|file:)(\S+)')
     
     def parse(self, input_text: str) -> ParsedInput:
         """
@@ -91,8 +92,10 @@ class CommandParser:
         
         message = text
         for file_ref in files:
-            message = message.replace(f"{FILE_PREFIX}{file_ref}", "").strip()
-        
+            # Remove both @file and file:path patterns
+            message = message.replace(f"@{file_ref}", "")
+            message = message.replace(f"file:{file_ref}", "")
+        message = message.strip()
         message = " ".join(message.split())
         
         return ParsedInput(

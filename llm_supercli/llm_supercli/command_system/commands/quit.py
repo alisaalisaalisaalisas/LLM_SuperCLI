@@ -13,4 +13,4 @@ class QuitCommand(SlashCommand):
     
     def run(self, args: str = "", **kwargs: Any) -> CommandResult:
         """Execute quit command."""
-        return CommandResult.exit("Goodbye! 👋")
+        return CommandResult.exit("")

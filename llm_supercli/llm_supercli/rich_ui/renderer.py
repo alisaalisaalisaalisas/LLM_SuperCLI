@@ -95,11 +95,10 @@ class RichRenderer:
         """Print welcome message with instructions."""
         self.print_banner("small")
         self._console.print()
-        self._console.print(
-            "[dim]Type [bold]/help[/bold] for commands, "
-            "[bold]!cmd[/bold] for shell, "
-            "[bold]@file[/bold] to include files[/dim]"
-        )
+        self._console.print("[dim]Tips:[/dim]")
+        self._console.print("[dim]1. Ask questions, edit files, or run commands[/dim]")
+        self._console.print("[dim]2. Use [bold]@file[/bold] to include file contents[/dim]")
+        self._console.print("[dim]3. Use [bold]/help[/bold] for more information[/dim]")
         self._console.print()
     
     def print_message(

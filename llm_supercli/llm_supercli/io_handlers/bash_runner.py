@@ -214,9 +214,12 @@ class BashRunner:
                     timeout=timeout
                 )
                 
+                # Handle Windows encoding (cp866/cp1251)
+                encoding = 'cp866' if is_windows() else 'utf-8'
+                
                 return CommandResult(
-                    stdout=stdout.decode().strip() if stdout else "",
-                    stderr=stderr.decode().strip() if stderr else "",
+                    stdout=stdout.decode(encoding, errors='replace').strip() if stdout else "",
+                    stderr=stderr.decode(encoding, errors='replace').strip() if stderr else "",
                     return_code=process.returncode or 0,
                     command=command
                 )

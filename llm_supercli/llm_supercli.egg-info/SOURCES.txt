@@ -30,6 +30,7 @@ llm_supercli/command_system/commands/cost.py
 llm_supercli/command_system/commands/custom_commands.py
 llm_supercli/command_system/commands/droids.py
 llm_supercli/command_system/commands/favorite.py
+llm_supercli/command_system/commands/file_cmd.py
 llm_supercli/command_system/commands/help_cmd.py
 llm_supercli/command_system/commands/ide.py
 llm_supercli/command_system/commands/install_github_app.py
@@ -68,9 +69,13 @@ llm_supercli/mcp/mcp_registry.py
 llm_supercli/mcp/mcp_server_client.py
 llm_supercli/rich_ui/__init__.py
 llm_supercli/rich_ui/ascii.py
+llm_supercli/rich_ui/autocomplete.py
 llm_supercli/rich_ui/input.py
+llm_supercli/rich_ui/interactive_input.py
+llm_supercli/rich_ui/prompt_input.py
 llm_supercli/rich_ui/renderer.py
 llm_supercli/rich_ui/theme.py
+llm_supercli/rich_ui/windows_input.py
 llm_supercli/themes/dark.json
 llm_supercli/themes/default.json
 llm_supercli/themes/solarized.json

@@ -3,6 +3,8 @@ Main CLI loop for llm_supercli.
 Handles the interactive command loop and message processing.
 """
 import asyncio
+import os
+import sys
 from typing import Any, Optional
 
 from .config import get_config
@@ -27,7 +29,6 @@ class CLI:
         """Initialize the CLI."""
         self._config = get_config()
         self._renderer = RichRenderer()
-        self._prompt_input = PromptInput()
         self._parser = CommandParser()
         self._commands = get_command_registry()
         self._sessions = get_session_store()
@@ -37,35 +38,25 @@ class CLI:
         self._files = FileLoader()
         self._running = False
         self._current_mode: Optional[str] = None
-        
-        # Set commands for autocomplete
-        self._prompt_input.set_commands(self._commands.list_commands())
+        self._input = PromptInput()
+        self._input.set_commands(self._commands.list_commands())
     
     def run(self) -> None:
         """Run the CLI main loop."""
-        asyncio.run(self._run_async())
-    
-    async def _run_async(self) -> None:
-        """Async main loop."""
         self._running = True
-        
         self._renderer.print_welcome()
-        
         self._ensure_session()
-        
-        if self._config.mcp.auto_connect:
-            await self._mcp.connect_auto_connect_servers()
         
         while self._running:
             try:
-                user_input = self._prompt_input.get_input(
+                user_input = self._input.get_input(
                     prompt=self._get_prompt()
                 )
                 
                 if not user_input.strip():
                     continue
                 
-                await self._process_input(user_input)
+                asyncio.run(self._process_input(user_input))
                 
             except KeyboardInterrupt:
                 self._renderer.print("\n[dim]Use /quit to exit[/dim]")
@@ -73,14 +64,14 @@ class CLI:
                 self._running = False
             except Exception as e:
                 self._renderer.print_error(f"Unexpected error: {e}")
-        
-        self._renderer.print("[dim]Goodbye![/dim]")
     
     def _get_prompt(self) -> str:
         """Get the input prompt string."""
-        provider = self._config.llm.provider
-        model = self._config.llm.model.split("/")[-1][:20]
-        return f"[{provider}/{model}] >>> "
+        # Update status bar with current info
+        cwd = os.getcwd()
+        model = f"{self._config.llm.provider}/{self._config.llm.model.split('/')[-1][:15]}"
+        self._input.set_status(cwd=cwd, model=model)
+        return "> "
     
     def _ensure_session(self) -> None:
         """Ensure there's an active session."""
