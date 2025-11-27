@@ -39,12 +39,16 @@ class ProviderRegistry:
         from .together import TogetherProvider
         from .huggingface import HuggingFaceProvider
         from .local_ollama import OllamaProvider
+        from .gemini import GeminiProvider
+        from .qwen import QwenProvider
         
         self.register("groq", GroqProvider)
         self.register("openrouter", OpenRouterProvider)
         self.register("together", TogetherProvider)
         self.register("huggingface", HuggingFaceProvider)
         self.register("ollama", OllamaProvider)
+        self.register("gemini", GeminiProvider)
+        self.register("qwen", QwenProvider)
     
     def register(self, name: str, provider_class: Type[LLMProvider]) -> None:
         """

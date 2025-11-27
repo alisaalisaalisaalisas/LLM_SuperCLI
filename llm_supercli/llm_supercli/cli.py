@@ -107,11 +107,18 @@ class CLI:
     
     def _get_prompt(self) -> str:
         """Get the input prompt string."""
-        # Update status bar with current info
         cwd = os.getcwd()
-        model = f"{self._config.llm.provider}/{self._config.llm.model.split('/')[-1][:15]}"
-        self._input.set_status(cwd=cwd, model=model)
-        return "> "
+        # Show shortened path in prompt
+        home = os.path.expanduser('~')
+        if cwd.startswith(home):
+            short_path = '~' + cwd[len(home):].replace('\\', '/')
+        else:
+            short_path = cwd.replace('\\', '/')
+        # Keep only last 2 parts if path is long
+        parts = short_path.split('/')
+        if len(parts) > 3:
+            short_path = '.../' + '/'.join(parts[-2:])
+        return f"[{short_path}] > "
     
     def _ensure_session(self) -> None:
         """Ensure there's an active session."""
@@ -200,7 +207,9 @@ class CLI:
                 self._renderer.print_error(f"Provider not found: {self._config.llm.provider}")
                 return
             
-            if not provider.api_key and self._config.llm.provider != "ollama":
+            # Providers that don't require API key (local or OAuth-based)
+            no_key_providers = ["ollama", "gemini", "qwen"]
+            if not provider.api_key and self._config.llm.provider not in no_key_providers:
                 self._renderer.print_error(
                     f"No API key set for {self._config.llm.provider}. "
                     f"Set environment variable or use /settings."

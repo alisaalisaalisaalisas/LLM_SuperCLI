@@ -14,6 +14,7 @@ class KeyCommand(SlashCommand):
     examples = [
         "/key list                    # List all providers and key status",
         "/key groq sk-xxxx            # Set Groq API key",
+        "/key gemini AIza-xxxx        # Set Gemini API key",
         "/key openrouter sk-or-xxxx   # Set OpenRouter API key",
         "/key together xxxx           # Set Together AI API key",
         "/key huggingface hf_xxxx     # Set HuggingFace API key",
@@ -27,6 +28,7 @@ class KeyCommand(SlashCommand):
         "hf": "HF_API_KEY",
         "openai": "OPENAI_API_KEY",
         "anthropic": "ANTHROPIC_API_KEY",
+        "gemini": "GEMINI_API_KEY",
     }
     
     def run(self, args: str = "", **kwargs: Any) -> CommandResult:

@@ -93,6 +93,35 @@ PROVIDERS: Final[dict] = {
             "phi3",
         ],
     },
+    "gemini": {
+        "name": "Google Gemini",
+        "base_url": "https://generativelanguage.googleapis.com",
+        "env_key": "GEMINI_API_KEY",
+        "models": [
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-lite",
+            "gemini-1.5-flash",
+            "gemini-1.5-flash-8b",
+            "gemini-1.5-pro",
+        ],
+    },
+    "qwen": {
+        "name": "Qwen (Alibaba Cloud)",
+        "base_url": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+        "env_key": None,
+        "models": [
+            "qwen-max",
+            "qwen-plus",
+            "qwen-turbo",
+            "qwen2.5-72b-instruct",
+            "qwen2.5-32b-instruct",
+            "qwen2.5-14b-instruct",
+            "qwen2.5-7b-instruct",
+            "qwen2.5-coder-32b-instruct",
+            "qwen2.5-math-72b-instruct",
+            "qwq-32b-preview",
+        ],
+    },
 }
 
 SYSTEM_PROMPT: Final[str] = """You are a helpful AI assistant running in a command-line interface.

@@ -22,23 +22,56 @@ class SettingsCommand(SlashCommand):
     def run(self, args: str = "", **kwargs: Any) -> CommandResult:
         """Execute settings command."""
         from ...config import get_config
-        from ...rich_ui.menu import select_settings_option
+        from ...rich_ui.falling_menu import SettingsMenu
         
         config = get_config()
         parts = args.strip().split(maxsplit=1)
         
-        # Interactive mode
+        # Interactive mode - show falling menu
         if not parts or (len(parts) == 1 and parts[0] in ["-i", "--interactive"]):
             if parts and parts[0] in ["-i", "--interactive"]:
-                # Force interactive
-                result = select_settings_option(config)
+                # Force interactive with falling menu
+                menu = SettingsMenu()
+                result = menu.show(config)
                 if result:
                     key, value = result
+                    # Handle combined provider + model change
+                    if key == "provider_and_model":
+                        provider, model = value
+                        self._set_setting(config, "provider", provider)
+                        return self._set_setting(config, "model", model)
                     return self._set_setting(config, key, value)
                 else:
                     return CommandResult.info("Settings modification cancelled")
-            # Show settings if no args
-            return self._show_settings(config)
+            # Show settings if no args, then offer interactive menu
+            self._show_settings(config)
+            # Prompt for interactive mode
+            from rich.console import Console
+            console = Console()
+            try:
+                console.print()
+                choice = console.input("[dim]Press Enter for interactive menu, or type setting name: [/]")
+                if not choice.strip():
+                    menu = SettingsMenu(console)
+                    result = menu.show(config)
+                    if result:
+                        key, value = result
+                        # Handle combined provider + model change
+                        if key == "provider_and_model":
+                            provider, model = value
+                            self._set_setting(config, "provider", provider)
+                            return self._set_setting(config, "model", model)
+                        return self._set_setting(config, key, value)
+                    return CommandResult.info("Settings modification cancelled")
+                else:
+                    parts = choice.strip().split(maxsplit=1)
+                    key = parts[0].lower()
+                    value = parts[1] if len(parts) > 1 else None
+                    if value is None:
+                        return self._show_setting(config, key)
+                    return self._set_setting(config, key, value)
+            except (EOFError, KeyboardInterrupt):
+                return CommandResult.info("Cancelled")
         
         key = parts[0].lower()
         value = parts[1] if len(parts) > 1 else None

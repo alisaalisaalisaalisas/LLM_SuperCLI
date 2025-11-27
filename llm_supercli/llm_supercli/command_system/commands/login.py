@@ -8,40 +8,84 @@ class LoginCommand(AsyncSlashCommand):
     """Login with OAuth."""
     
     name = "login"
-    description = "Login with Google or GitHub OAuth"
-    usage = "[google|github]"
-    examples = ["/login google", "/login github"]
+    description = "Login with OAuth (gemini, qwen, google, github)"
+    usage = "[gemini|qwen|google|github]"
+    examples = [
+        "/login gemini   # Login to Google Gemini API",
+        "/login qwen     # Login to Alibaba Qwen/DashScope",
+        "/login google   # Login with Google account",
+        "/login github   # Login with GitHub account",
+    ]
     
     async def run_async(self, args: str = "", **kwargs: Any) -> CommandResult:
         """Execute login command."""
-        from ...auth import GoogleOAuth, GitHubOAuth, get_session_manager
+        from ...auth import GoogleOAuth, GitHubOAuth, GeminiOAuth, QwenOAuth, get_session_manager
         from ...constants import GOOGLE_CLIENT_ID, GITHUB_CLIENT_ID
         
         session_manager = get_session_manager()
-        provider = args.strip().lower() or "google"
+        provider = args.strip().lower() or "gemini"
         
-        if provider not in ("google", "github"):
+        valid_providers = ("google", "github", "gemini", "qwen")
+        if provider not in valid_providers:
             return CommandResult.error(
-                f"Unknown provider: {provider}. Use 'google' or 'github'."
+                f"Unknown provider: {provider}. Use one of: {', '.join(valid_providers)}"
             )
         
-        # Check if OAuth credentials are configured
-        if provider == "google" and GOOGLE_CLIENT_ID == "YOUR_GOOGLE_CLIENT_ID":
+        # Handle Gemini OAuth (LLM provider)
+        if provider == "gemini":
+            oauth = GeminiOAuth()
+            if oauth.is_authenticated():
+                return CommandResult.success(
+                    "Already logged in to Gemini. Use `/logout gemini` to logout first."
+                )
+            
+            try:
+                session = await oauth.login()
+                if session:
+                    return CommandResult.success(
+                        f"[+] Logged in to **Gemini** as **{session.user_email}**\n"
+                        "You can now use Gemini models with `/model gemini`"
+                    )
+                else:
+                    return CommandResult.error("Gemini login failed or was cancelled.")
+            except Exception as e:
+                return CommandResult.error(f"Gemini login error: {e}")
+        
+        # Handle Qwen OAuth (LLM provider)
+        if provider == "qwen":
+            oauth = QwenOAuth()
+            if oauth.is_authenticated():
+                return CommandResult.success(
+                    "Already logged in to Qwen. Use `/logout qwen` to logout first."
+                )
+            
+            try:
+                session = await oauth.login()
+                if session:
+                    return CommandResult.success(
+                        "[+] Logged in to **Qwen (DashScope)**\n"
+                        "You can now use Qwen models with `/model qwen`"
+                    )
+                else:
+                    return CommandResult.error("Qwen login failed or was cancelled.")
+            except Exception as e:
+                return CommandResult.error(f"Qwen login error: {e}")
+        
+        # Original Google/GitHub OAuth for account login
+        if provider == "google" and not GOOGLE_CLIENT_ID:
             return CommandResult.error(
                 "Google OAuth not configured.\n\n"
                 "To enable Google login:\n"
                 "1. Create OAuth credentials at https://console.cloud.google.com\n"
-                "2. Update GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in constants.py\n"
-                "3. Or set environment variables GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET"
+                "2. Set environment variables GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET"
             )
         
-        if provider == "github" and GITHUB_CLIENT_ID == "YOUR_GITHUB_CLIENT_ID":
+        if provider == "github" and not GITHUB_CLIENT_ID:
             return CommandResult.error(
                 "GitHub OAuth not configured.\n\n"
                 "To enable GitHub login:\n"
                 "1. Create OAuth App at https://github.com/settings/developers\n"
-                "2. Update GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET in constants.py\n"
-                "3. Or set environment variables GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET"
+                "2. Set environment variables GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET"
             )
         
         if session_manager.is_authenticated(provider):

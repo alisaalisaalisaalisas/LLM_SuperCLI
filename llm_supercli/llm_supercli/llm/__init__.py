@@ -6,10 +6,12 @@ from .openrouter import OpenRouterProvider
 from .together import TogetherProvider
 from .huggingface import HuggingFaceProvider
 from .local_ollama import OllamaProvider
+from .gemini import GeminiProvider
+from .qwen import QwenProvider
 
 __all__ = [
     'LLMProvider', 'LLMResponse', 'StreamChunk',
     'ProviderRegistry', 'get_provider_registry',
     'GroqProvider', 'OpenRouterProvider', 'TogetherProvider',
-    'HuggingFaceProvider', 'OllamaProvider'
+    'HuggingFaceProvider', 'OllamaProvider', 'GeminiProvider', 'QwenProvider'
 ]

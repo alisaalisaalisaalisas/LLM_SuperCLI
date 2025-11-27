@@ -112,7 +112,8 @@ class ModelCommand(SlashCommand):
                 f"Available: {', '.join(registry.list_providers())}"
             )
         
-        if not provider.api_key and provider_name != "ollama":
+        no_key_providers = ["ollama", "gemini"]
+        if not provider.api_key and provider_name not in no_key_providers:
             return CommandResult.error(
                 f"No API key configured for {provider_name}. "
                 f"Set the environment variable or use /settings."

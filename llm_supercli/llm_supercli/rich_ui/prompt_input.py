@@ -257,7 +257,6 @@ class PromptInput:
             complete_while_typing=True,
             history=self._history,
             style=PROMPT_STYLE,
-            bottom_toolbar=self._get_toolbar,
             mouse_support=False,
             reserve_space_for_menu=8,
         )

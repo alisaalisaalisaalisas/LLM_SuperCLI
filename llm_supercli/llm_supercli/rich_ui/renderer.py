@@ -329,17 +329,18 @@ class RichRenderer:
             cost: Optional cost value
         """
         parts = [
-            f"[{self._theme_manager.get_style('command')}]{provider}[/]",
+            f"[bold cyan]{provider.title()}[/]",
             f"[dim]/[/dim]",
-            f"[{self._theme_manager.get_color('secondary')}]{model}[/]",
+            f"[cyan]{model}[/]",
         ]
         
         if tokens:
             input_t, output_t = tokens
-            parts.append(f"[dim]│[/dim] [tokens]{input_t}→{output_t} tokens[/tokens]")
+            total = input_t + output_t
+            parts.append(f"[dim]|[/dim] [dim]{total} tokens[/]")
         
-        if cost is not None:
-            parts.append(f"[dim]│[/dim] [cost]${cost:.4f}[/cost]")
+        if cost is not None and cost > 0:
+            parts.append(f"[dim]|[/dim] [green]${cost:.4f}[/]")
         
         self._console.print(" ".join(parts))
     

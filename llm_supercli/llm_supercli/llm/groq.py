@@ -64,8 +64,8 @@ class GroqProvider(LLMProvider):
             supports_streaming=True,
             supports_functions=True,
             rate_limit_rpm=30,
-            cost_per_1k_input=0.0001,
-            cost_per_1k_output=0.0002,
+            cost_per_1k_input=0.0,
+            cost_per_1k_output=0.0,
         )
     
     async def chat(
