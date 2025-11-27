@@ -137,13 +137,19 @@ class ConfigManager:
     
     def _save_config(self) -> None:
         """Save current configuration to JSON file."""
+        # Only save API keys that were explicitly set (not from environment)
+        saved_keys = {}
+        for k, v in self._config.api_keys.items():
+            env_value = os.environ.get(k)
+            if env_value != v:  # Only save if different from env
+                saved_keys[k] = v
+        
         data = {
             'llm': asdict(self._config.llm),
             'ui': asdict(self._config.ui),
             'auth': asdict(self._config.auth),
             'mcp': asdict(self._config.mcp),
-            'api_keys': {k: v for k, v in self._config.api_keys.items() 
-                        if not k.endswith('_KEY')},  # Don't save env-loaded keys
+            'api_keys': saved_keys,
         }
         
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:

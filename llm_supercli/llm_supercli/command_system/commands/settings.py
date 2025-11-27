@@ -8,11 +8,12 @@ class SettingsCommand(SlashCommand):
     """View and modify settings."""
     
     name = "settings"
-    description = "View and modify CLI settings"
+    description = "View and modify CLI settings (use -i for interactive menu)"
     aliases = ["config", "prefs"]
-    usage = "[key] [value]"
+    usage = "[key] [value] | -i"
     examples = [
-        "/settings",
+        "/settings              # Show all settings",
+        "/settings -i           # Interactive settings menu",
         "/settings theme dark",
         "/settings temperature 0.8",
         "/settings streaming true"
@@ -21,11 +22,22 @@ class SettingsCommand(SlashCommand):
     def run(self, args: str = "", **kwargs: Any) -> CommandResult:
         """Execute settings command."""
         from ...config import get_config
+        from ...rich_ui.menu import select_settings_option
         
         config = get_config()
         parts = args.strip().split(maxsplit=1)
         
-        if not parts:
+        # Interactive mode
+        if not parts or (len(parts) == 1 and parts[0] in ["-i", "--interactive"]):
+            if parts and parts[0] in ["-i", "--interactive"]:
+                # Force interactive
+                result = select_settings_option(config)
+                if result:
+                    key, value = result
+                    return self._set_setting(config, key, value)
+                else:
+                    return CommandResult.info("Settings modification cancelled")
+            # Show settings if no args
             return self._show_settings(config)
         
         key = parts[0].lower()

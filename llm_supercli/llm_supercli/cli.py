@@ -3,6 +3,7 @@ Main CLI loop for llm_supercli.
 Handles the interactive command loop and message processing.
 """
 import asyncio
+import json
 import os
 import sys
 from typing import Any, Optional
@@ -15,6 +16,7 @@ from .history import get_session_store
 from .llm import get_provider_registry
 from .mcp import get_mcp_manager
 from .io_handlers import BashRunner, FileLoader
+from .tools import TOOLS, ToolExecutor
 
 
 class CLI:
@@ -36,6 +38,7 @@ class CLI:
         self._mcp = get_mcp_manager()
         self._bash = BashRunner()
         self._files = FileLoader()
+        self._tools = ToolExecutor()
         self._running = False
         self._current_mode: Optional[str] = None
         self._input = PromptInput()
@@ -56,7 +59,7 @@ class CLI:
                 if not user_input.strip():
                     continue
                 
-                asyncio.run(self._process_input(user_input))
+                self._process_input_sync(user_input)
                 
             except KeyboardInterrupt:
                 self._renderer.print("\n[dim]Use /quit to exit[/dim]")
@@ -64,6 +67,43 @@ class CLI:
                 self._running = False
             except Exception as e:
                 self._renderer.print_error(f"Unexpected error: {e}")
+    
+    def _process_input_sync(self, user_input: str) -> None:
+        """Process user input synchronously, only using async when necessary."""
+        parsed = self._parser.parse(user_input)
+        
+        if parsed.type == "command":
+            self._handle_command_sync(parsed.command, parsed.args)
+        elif parsed.type == "shell":
+            asyncio.run(self._handle_shell(parsed.shell_command))
+        elif parsed.type == "message":
+            asyncio.run(self._handle_message(parsed.message, parsed.files))
+        elif parsed.type == "empty":
+            pass
+    
+    def _handle_command_sync(self, command: str, args: str) -> None:
+        """Handle a slash command synchronously."""
+        result = self._commands.execute(
+            command,
+            args,
+            session=self._sessions.current_session,
+            config=self._config,
+            renderer=self._renderer
+        )
+        
+        if result.should_exit:
+            self._running = False
+        
+        if result.should_clear:
+            self._renderer.clear()
+            self._renderer.print_welcome()
+            return
+        
+        if result.message:
+            if result.is_error:
+                self._renderer.print_error(result.message)
+            else:
+                self._renderer.print_markdown(result.message)
     
     def _get_prompt(self) -> str:
         """Get the input prompt string."""
@@ -167,15 +207,49 @@ class CLI:
                 )
                 return
             
-            context = session.get_context()
+            # Update tool executor working directory
+            self._tools.working_dir = os.getcwd()
             
-            if self._config.ui.streaming:
-                await self._stream_response(provider, context, session)
-            else:
-                await self._get_response(provider, context, session)
+            # Build context with system message including current directory
+            context = self._build_context_with_tools(session)
+            
+            # Use non-streaming for tool support
+            await self._get_response_with_tools(provider, context, session)
                 
         except Exception as e:
             self._renderer.print_error(f"LLM Error: {e}")
+    
+    def _build_context_with_tools(self, session) -> list:
+        """Build message context with system prompt including current directory info."""
+        cwd = os.getcwd()
+        
+        # Enhanced system prompt with tool awareness
+        system_content = f"""You are a helpful AI assistant running in a command-line interface.
+You have access to the user's file system and can help with file operations.
+
+Current working directory: {cwd}
+
+You have the following tools available:
+- get_current_directory: Get the current working directory
+- list_directory: List files and folders in a directory
+- read_file: Read the contents of a file
+- write_file: Write content to a file
+- create_directory: Create a new directory
+- run_command: Run a shell command
+
+When the user asks about files, projects, or needs file operations, USE THE TOOLS to help them.
+Always use tools when you need to see file contents or directory structure.
+Be concise and helpful."""
+
+        messages = [{"role": "system", "content": system_content}]
+        
+        # Add conversation history
+        context = session.get_context()
+        for msg in context:
+            if msg.get("role") != "system":
+                messages.append(msg)
+        
+        return messages
     
     async def _stream_response(self, provider, context: list, session) -> None:
         """Stream response from LLM."""
@@ -242,3 +316,93 @@ class CLI:
                 
         finally:
             self._renderer.stop_spinner()
+    
+    async def _get_response_with_tools(self, provider, context: list, session, max_iterations: int = 10) -> None:
+        """Get response from LLM with tool calling support."""
+        messages = context.copy()
+        iteration = 0
+        
+        while iteration < max_iterations:
+            iteration += 1
+            self._renderer.start_spinner("Thinking...")
+            
+            try:
+                response = await provider.chat(
+                    messages=messages,
+                    model=self._config.llm.model,
+                    temperature=self._config.llm.temperature,
+                    max_tokens=self._config.llm.max_tokens,
+                    tools=TOOLS
+                )
+                
+                self._renderer.stop_spinner()
+                
+                raw = response.raw_response
+                choice = raw.get("choices", [{}])[0]
+                message = choice.get("message", {})
+                tool_calls = message.get("tool_calls")
+                
+                # If there are tool calls, execute them
+                if tool_calls:
+                    # Add assistant message with tool calls to context
+                    messages.append(message)
+                    
+                    for tool_call in tool_calls:
+                        func = tool_call.get("function", {})
+                        tool_name = func.get("name", "")
+                        tool_id = tool_call.get("id", "")
+                        
+                        try:
+                            args = json.loads(func.get("arguments", "{}"))
+                        except json.JSONDecodeError:
+                            args = {}
+                        
+                        # Show tool execution
+                        self._renderer.print(f"[dim]> Using tool: {tool_name}({args})[/dim]")
+                        
+                        # Execute the tool
+                        result = self._tools.execute(tool_name, args)
+                        
+                        # Show result preview
+                        preview = result[:200] + "..." if len(result) > 200 else result
+                        self._renderer.print(f"[dim]> Result: {preview}[/dim]\n")
+                        
+                        # Add tool result to messages
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_id,
+                            "content": result
+                        })
+                    
+                    # Continue loop to get next response
+                    continue
+                
+                # No tool calls - this is the final response
+                content = response.content or ""
+                if content:
+                    self._renderer.print_message(content, role="assistant")
+                    
+                    session.add_message(
+                        "assistant",
+                        content,
+                        tokens=response.total_tokens,
+                        cost=response.cost
+                    )
+                    self._sessions.save_session(session)
+                    
+                    if self._config.ui.show_token_count:
+                        self._renderer.print_status(
+                            provider=response.provider,
+                            model=response.model,
+                            tokens=(response.input_tokens, response.output_tokens),
+                            cost=response.cost if self._config.ui.show_cost else None
+                        )
+                
+                break
+                
+            except Exception as e:
+                self._renderer.stop_spinner()
+                raise e
+        
+        if iteration >= max_iterations:
+            self._renderer.print_warning("Reached maximum tool iterations")

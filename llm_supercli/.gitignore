@@ -36,3 +36,15 @@ env/
 .cache/
 *.cache
 __cache__/
+
+# API Keys & Sensitive Config
+.env
+.env.*
+config.json
+mcp_servers.json
+.auth_cache
+*.key
+*.secret
+
+# Local configuration directory
+.llm_supercli/

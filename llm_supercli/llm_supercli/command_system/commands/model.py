@@ -8,13 +8,15 @@ class ModelCommand(SlashCommand):
     """Switch LLM model or provider."""
     
     name = "model"
-    description = "Switch LLM model or provider"
+    description = "Switch LLM model or provider (interactive menu by default)"
     aliases = ["m"]
-    usage = "[provider/model | list]"
+    usage = "[provider/model | list | current | -i]"
     examples = [
-        "/model",
-        "/model list",
-        "/model groq/llama-3.3-70b-versatile",
+        "/model                               # Interactive selection menu",
+        "/model -i                            # Force interactive mode",
+        "/model current                       # Show current configuration",
+        "/model list                          # List all available models",
+        "/model groq/llama-3.3-70b-versatile  # Switch directly",
         "/model openrouter/anthropic/claude-3.5-sonnet"
     ]
     
@@ -22,17 +24,30 @@ class ModelCommand(SlashCommand):
         """Execute model command."""
         from ...config import get_config
         from ...llm import get_provider_registry
+        from ...rich_ui.menu import select_model_interactive
         
         config = get_config()
         registry = get_provider_registry()
         
         args = args.strip()
         
-        if not args:
-            return self._show_current(config, registry)
+        # Interactive mode: no args or -i flag
+        if not args or args in ["-i", "--interactive"]:
+            result = select_model_interactive(registry)
+            if result:
+                provider_name, model_name = result
+                config.update_llm(provider=provider_name, model=model_name)
+                return CommandResult.success(
+                    f"Switched to **{provider_name}/{model_name}**"
+                )
+            else:
+                return CommandResult.info("Model selection cancelled")
         
         if args.lower() == "list":
             return self._list_models(registry)
+        
+        if args.lower() in ["current", "show"]:
+            return self._show_current(config, registry)
         
         return self._switch_model(args, config, registry)
     

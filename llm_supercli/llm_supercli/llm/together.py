@@ -106,7 +106,8 @@ class TogetherProvider(LLMProvider):
         
         latency_ms = (time.perf_counter() - start_time) * 1000
         
-        content = data["choices"][0]["message"]["content"]
+        message = data["choices"][0]["message"]
+        content = message.get("content") or ""
         usage = data.get("usage", {})
         input_tokens = usage.get("prompt_tokens", 0)
         output_tokens = usage.get("completion_tokens", 0)

@@ -29,10 +29,12 @@ MAX_CONTEXT_LENGTH: Final[int] = 128000
 DEFAULT_MAX_TOKENS: Final[int] = 4096
 DEFAULT_TEMPERATURE: Final[float] = 0.7
 
-GOOGLE_CLIENT_ID: Final[str] = "YOUR_GOOGLE_CLIENT_ID"
-GOOGLE_CLIENT_SECRET: Final[str] = "YOUR_GOOGLE_CLIENT_SECRET"
-GITHUB_CLIENT_ID: Final[str] = "YOUR_GITHUB_CLIENT_ID"
-GITHUB_CLIENT_SECRET: Final[str] = "YOUR_GITHUB_CLIENT_SECRET"
+# OAuth credentials - load from environment variables or config file
+# DO NOT hardcode real credentials here - they will be exposed in git history
+GOOGLE_CLIENT_ID: Final[str] = ""  # Set via GOOGLE_CLIENT_ID env var or config.json
+GOOGLE_CLIENT_SECRET: Final[str] = ""  # Set via GOOGLE_CLIENT_SECRET env var or config.json
+GITHUB_CLIENT_ID: Final[str] = ""  # Set via GITHUB_CLIENT_ID env var or config.json
+GITHUB_CLIENT_SECRET: Final[str] = ""  # Set via GITHUB_CLIENT_SECRET env var or config.json
 
 OAUTH_REDIRECT_PORT: Final[int] = 8765
 OAUTH_TIMEOUT_SECONDS: Final[int] = 300
