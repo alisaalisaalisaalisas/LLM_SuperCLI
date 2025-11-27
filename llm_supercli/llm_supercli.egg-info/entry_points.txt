@@ -1,0 +1,3 @@
+[console_scripts]
+llm = llm_supercli.main:main
+llm-supercli = llm_supercli.main:main

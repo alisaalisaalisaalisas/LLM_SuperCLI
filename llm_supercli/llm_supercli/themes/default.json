@@ -1,0 +1,38 @@
+{
+  "name": "default",
+  "description": "Default light theme",
+  "colors": {
+    "primary": "cyan",
+    "secondary": "magenta",
+    "accent": "yellow",
+    "success": "green",
+    "warning": "yellow",
+    "error": "red",
+    "info": "blue",
+    "muted": "dim white",
+    "background": "default",
+    "foreground": "white"
+  },
+  "styles": {
+    "prompt": "bold cyan",
+    "user_message": "white",
+    "assistant_message": "green",
+    "system_message": "dim italic",
+    "error_message": "bold red",
+    "warning_message": "bold yellow",
+    "info_message": "blue",
+    "code": "on grey23",
+    "code_border": "grey50",
+    "panel_border": "cyan",
+    "panel_title": "bold cyan",
+    "header": "bold white on blue",
+    "footer": "dim",
+    "highlight": "bold yellow",
+    "link": "underline blue",
+    "command": "bold magenta",
+    "token_count": "dim cyan",
+    "cost": "dim green",
+    "timestamp": "dim",
+    "spinner": "cyan"
+  }
+}

@@ -1,0 +1,34 @@
+Metadata-Version: 2.4
+Name: llm-supercli
+Version: 1.0.0
+Summary: A powerful multi-provider LLM command line interface
+Author: LLM SuperCLI Team
+License: MIT
+Project-URL: Homepage, https://github.com/llm-supercli/llm-supercli
+Project-URL: Documentation, https://github.com/llm-supercli/llm-supercli#readme
+Project-URL: Repository, https://github.com/llm-supercli/llm-supercli
+Project-URL: Issues, https://github.com/llm-supercli/llm-supercli/issues
+Keywords: llm,cli,ai,chatbot,groq,openrouter,ollama
+Classifier: Development Status :: 4 - Beta
+Classifier: Environment :: Console
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Topic :: Scientific/Engineering :: Artificial Intelligence
+Classifier: Topic :: Utilities
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: rich>=13.0.0
+Requires-Dist: httpx>=0.25.0
+Requires-Dist: click>=8.0.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0.0; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.21.0; extra == "dev"
+Requires-Dist: pytest-cov>=4.0.0; extra == "dev"
+Requires-Dist: mypy>=1.0.0; extra == "dev"
+Requires-Dist: ruff>=0.1.0; extra == "dev"
+Requires-Dist: black>=23.0.0; extra == "dev"

@@ -1,0 +1,38 @@
+{
+  "name": "solarized",
+  "description": "Solarized dark theme",
+  "colors": {
+    "primary": "#268bd2",
+    "secondary": "#d33682",
+    "accent": "#b58900",
+    "success": "#859900",
+    "warning": "#cb4b16",
+    "error": "#dc322f",
+    "info": "#2aa198",
+    "muted": "#93a1a1",
+    "background": "#002b36",
+    "foreground": "#839496"
+  },
+  "styles": {
+    "prompt": "bold #268bd2",
+    "user_message": "#839496",
+    "assistant_message": "#859900",
+    "system_message": "#657b83 italic",
+    "error_message": "bold #dc322f",
+    "warning_message": "bold #cb4b16",
+    "info_message": "#2aa198",
+    "code": "on #073642",
+    "code_border": "#586e75",
+    "panel_border": "#268bd2",
+    "panel_title": "bold #268bd2",
+    "header": "bold #fdf6e3 on #073642",
+    "footer": "#657b83",
+    "highlight": "bold #b58900",
+    "link": "underline #268bd2",
+    "command": "bold #d33682",
+    "token_count": "#657b83",
+    "cost": "#657b83",
+    "timestamp": "#586e75",
+    "spinner": "#268bd2"
+  }
+}

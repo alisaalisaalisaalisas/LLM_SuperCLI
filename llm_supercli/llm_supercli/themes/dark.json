@@ -1,0 +1,38 @@
+{
+  "name": "dark",
+  "description": "Dark theme with high contrast",
+  "colors": {
+    "primary": "bright_cyan",
+    "secondary": "bright_magenta",
+    "accent": "bright_yellow",
+    "success": "bright_green",
+    "warning": "bright_yellow",
+    "error": "bright_red",
+    "info": "bright_blue",
+    "muted": "grey62",
+    "background": "grey7",
+    "foreground": "grey93"
+  },
+  "styles": {
+    "prompt": "bold bright_cyan",
+    "user_message": "grey93",
+    "assistant_message": "bright_green",
+    "system_message": "grey62 italic",
+    "error_message": "bold bright_red",
+    "warning_message": "bold bright_yellow",
+    "info_message": "bright_blue",
+    "code": "on grey15",
+    "code_border": "grey42",
+    "panel_border": "bright_cyan",
+    "panel_title": "bold bright_cyan",
+    "header": "bold white on grey23",
+    "footer": "grey62",
+    "highlight": "bold bright_yellow",
+    "link": "underline bright_blue",
+    "command": "bold bright_magenta",
+    "token_count": "grey62",
+    "cost": "grey62",
+    "timestamp": "grey50",
+    "spinner": "bright_cyan"
+  }
+}

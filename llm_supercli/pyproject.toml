@@ -1,0 +1,83 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-supercli"
+version = "1.0.0"
+description = "A powerful multi-provider LLM command line interface"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "LLM SuperCLI Team"}
+]
+keywords = ["llm", "cli", "ai", "chatbot", "groq", "openrouter", "ollama"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "rich>=13.0.0",
+    "httpx>=0.25.0",
+    "click>=8.0.0",
+    "prompt_toolkit>=3.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "mypy>=1.0.0",
+    "ruff>=0.1.0",
+    "black>=23.0.0",
+]
+
+[project.scripts]
+llm-supercli = "llm_supercli.main:main"
+llm = "llm_supercli.main:main"
+
+[project.urls]
+Homepage = "https://github.com/llm-supercli/llm-supercli"
+Documentation = "https://github.com/llm-supercli/llm-supercli#readme"
+Repository = "https://github.com/llm-supercli/llm-supercli"
+Issues = "https://github.com/llm-supercli/llm-supercli/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["llm_supercli*"]
+
+[tool.setuptools.package-data]
+llm_supercli = ["themes/*.json"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
