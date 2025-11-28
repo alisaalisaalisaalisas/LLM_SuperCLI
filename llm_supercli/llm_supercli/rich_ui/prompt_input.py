@@ -69,10 +69,84 @@ class CLICompleter(Completer):
         try:
             if text.startswith('/'):
                 yield from self._get_command_completions(text, document)
-            elif text.startswith('@') or text.startswith('file:'):
-                yield from self._get_file_completions(text, document)
             elif text.startswith('!'):
                 yield from self._get_shell_completions(text, document)
+            else:
+                # Check for @ anywhere in text (for file completion mid-sentence)
+                at_pos = text.rfind('@')
+                if at_pos >= 0:
+                    # Check if there's a space after the @, meaning it's completed
+                    text_after_at = text[at_pos:]
+                    if ' ' not in text_after_at[1:]:
+                        # Active @ mention - get file completions
+                        yield from self._get_file_completions_at(text, at_pos, document)
+        except Exception:
+            pass
+    
+    def _get_file_completions_at(self, full_text: str, at_pos: int, document: Document) -> Iterable[Completion]:
+        """Get file completions for @ at any position in text."""
+        # Extract the @... part being typed
+        at_text = full_text[at_pos:]
+        path_text = at_text[1:]  # Remove @
+        
+        try:
+            if not path_text:
+                search_dir = Path.cwd()
+                prefix = ''
+            else:
+                path = Path(path_text).expanduser()
+                if path.is_dir():
+                    search_dir = path
+                    prefix = path_text.rstrip('/\\') + os.sep
+                elif path.parent.exists():
+                    search_dir = path.parent
+                    prefix = str(path.parent)
+                    if prefix != '.':
+                        prefix += os.sep
+                    else:
+                        prefix = ''
+                else:
+                    return
+            
+            partial_name = Path(path_text).name.lower() if path_text and not path_text.endswith(os.sep) else ''
+            
+            # Get files quickly - limit to 20 items
+            items = []
+            try:
+                for item in search_dir.iterdir():
+                    if len(items) >= 20:
+                        break
+                    if partial_name and partial_name not in item.name.lower():
+                        continue
+                    items.append(item)
+            except (OSError, PermissionError):
+                return
+            
+            items.sort(key=lambda x: (not x.is_dir(), x.name.lower()))
+            
+            for item in items:
+                name = item.name
+                
+                if item.is_dir():
+                    display_name = f'{name}/'
+                    meta = '[DIR]'
+                else:
+                    try:
+                        size = item.stat().st_size
+                        meta = self._format_size(size)
+                    except OSError:
+                        meta = ''
+                    display_name = name
+                
+                file_ref = f'@{prefix}{name}' + ('/' if item.is_dir() else '')
+                
+                # Replace only from @ position to cursor
+                yield Completion(
+                    file_ref,
+                    start_position=-len(at_text),
+                    display=display_name,
+                    display_meta=meta
+                )
         except Exception:
             pass
     

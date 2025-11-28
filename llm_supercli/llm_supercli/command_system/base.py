@@ -50,6 +50,11 @@ class CommandResult:
         )
     
     @classmethod
+    def info(cls, message: str, data: Any = None) -> 'CommandResult':
+        """Create an info result (success with informational message)."""
+        return cls(status=CommandStatus.SUCCESS, message=message, data=data)
+    
+    @classmethod
     def exit(cls, message: str = "Goodbye!") -> 'CommandResult':
         """Create an exit result."""
         return cls(status=CommandStatus.SUCCESS, message=message, should_exit=True)

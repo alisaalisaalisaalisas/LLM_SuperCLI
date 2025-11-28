@@ -112,11 +112,21 @@ class ModelCommand(SlashCommand):
                 f"Available: {', '.join(registry.list_providers())}"
             )
         
-        no_key_providers = ["ollama", "gemini"]
+        # OAuth-based providers don't need API keys
+        no_key_providers = ["ollama", "gemini", "qwen"]
         if not provider.api_key and provider_name not in no_key_providers:
             return CommandResult.error(
                 f"No API key configured for {provider_name}. "
                 f"Set the environment variable or use /settings."
+            )
+            
+        # Validate model existence
+        if model_name not in provider.available_models:
+            # Check if it's a valid model but maybe user typed a partial name?
+            # For now, strict matching to prevent errors
+            return CommandResult.error(
+                f"Invalid model '{model_name}' for provider '{provider_name}'.\n"
+                f"Available models: {', '.join(provider.available_models)}"
             )
         
         config.update_llm(provider=provider_name, model=model_name)

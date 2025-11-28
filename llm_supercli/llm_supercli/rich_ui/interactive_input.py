@@ -239,7 +239,12 @@ class InteractiveInput:
                             # Select current item
                             selected = self._completer.get_selected()
                             if selected:
-                                self._buffer = selected
+                                # Check if completing @ mention mid-text
+                                at_start = self._completer.at_mention_start
+                                if at_start >= 0:
+                                    self._buffer = self._buffer[:at_start] + selected
+                                else:
+                                    self._buffer = selected
                                 self._show_menu = False
                                 self._completer.reset()
                         else:
@@ -293,11 +298,23 @@ class InteractiveInput:
                 
                 elif len(key) == 1 and key.isprintable():
                     self._buffer += key
-                    self._show_menu = False
                     
-                    # Auto-show menu for special prefixes
-                    mode = self._detect_mode(self._buffer)
-                    if mode and len(self._buffer) >= 1:
+                    # Auto-show menu for special prefixes or @ anywhere
+                    if key == '@':
+                        # @ typed - show file menu (works anywhere in buffer)
+                        items, _ = self._completer.get_completions(self._buffer)
+                        if items:
+                            self._show_menu = True
+                            self._console.print()
+                            menu = self._render_menu()
+                            if menu:
+                                self._console.print(menu)
+                    elif key == ' ' and self._show_menu:
+                        # Space typed while in completion - close menu
+                        self._show_menu = False
+                        self._completer.reset()
+                    elif self._buffer in ['/', '!']:
+                        # / or ! at start - show menu
                         items, _ = self._completer.get_completions(self._buffer)
                         if items and len(items) <= 10:
                             self._show_menu = True
@@ -305,6 +322,19 @@ class InteractiveInput:
                             menu = self._render_menu()
                             if menu:
                                 self._console.print(menu)
+                    elif self._show_menu:
+                        # Update existing menu
+                        items, _ = self._completer.get_completions(self._buffer)
+                        if items:
+                            self._console.print()
+                            menu = self._render_menu()
+                            if menu:
+                                self._console.print(menu)
+                        else:
+                            self._show_menu = False
+                            self._completer.reset()
+                    else:
+                        self._show_menu = False
 
 
 class SimpleInteractiveInput:

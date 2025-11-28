@@ -164,11 +164,27 @@ class ProviderRegistry:
         if provider is None:
             return None
         
+        # Check for API key or OAuth credentials
+        has_key = provider.api_key is not None
+        
+        # Check OAuth providers
+        if not has_key:
+            if name == "gemini":
+                from pathlib import Path
+                import os
+                creds = Path(os.path.expanduser("~/.gemini/oauth_creds.json"))
+                has_key = creds.exists()
+            elif name == "qwen":
+                from pathlib import Path
+                import os
+                creds = Path(os.path.expanduser("~/.qwen/oauth_creds.json"))
+                has_key = creds.exists()
+        
         return {
             "name": provider.name,
             "model": provider.model,
             "available_models": provider.available_models,
-            "has_api_key": provider.api_key is not None,
+            "has_api_key": has_key,
         }
     
     def list_all_models(self) -> Dict[str, list[str]]:

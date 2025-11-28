@@ -1,35 +1,44 @@
 """
-Google Gemini LLM provider implementation for llm_supercli.
-Uses REST API with OAuth or API key authentication.
+Google Gemini CLI provider with OAuth authentication.
+Uses Google's Code Assist API (cloudcode-pa.googleapis.com).
+Based on KiloCode/Cline implementation.
 """
 import json
 import os
 import time
 from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
-
+import asyncio
 import httpx
 
 from .base import LLMProvider, LLMResponse, ProviderConfig, StreamChunk
 
 
+# Code Assist API Configuration
+CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com"
+CODE_ASSIST_API_VERSION = "v1internal"
+
+# Extension config URL for OAuth credentials
+EXTENSION_CONFIG_URL = "https://kilocode.ai/api/extension-config"
+
+# Gemini models available through Code Assist (matching Gemini CLI)
+GEMINI_MODELS = [
+    "auto",  # Let Gemini choose the best model
+    "gemini-2.5-pro",  # Pro model for complex tasks
+    "gemini-2.5-flash",  # Flash model for speed
+    "gemini-2.5-flash-lite",  # Flash-Lite for simple tasks
+]
+
+GEMINI_DEFAULT_MODEL = "gemini-2.5-flash"
+
+
 class GeminiProvider(LLMProvider):
     """
-    Google Gemini API provider using REST API.
+    Google Gemini provider using OAuth with Code Assist API.
     
-    Supports:
-    - API key authentication (GEMINI_API_KEY env var)
-    - OAuth credentials from ~/.gemini/oauth_creds.json (gemini-cli style)
-    
-    OAuth uses Vertex AI endpoint which requires:
-    - Google Cloud project with Vertex AI API enabled
-    - OAuth token with cloud-platform scope
+    Reads OAuth credentials from ~/.gemini/oauth_creds.json
+    (compatible with Gemini CLI format).
     """
-    
-    GENAI_URL = "https://generativelanguage.googleapis.com/v1beta"
-    # Vertex AI endpoint for OAuth (gemini-cli compatible)
-    VERTEX_AI_URL = "https://{region}-aiplatform.googleapis.com/v1/projects/{project_id}/locations/{region}/publishers/google/models"
-    DEFAULT_REGION = "us-central1"
     
     def __init__(
         self,
@@ -37,166 +46,211 @@ class GeminiProvider(LLMProvider):
         model: Optional[str] = None,
         **kwargs: Any
     ) -> None:
+        """Initialize Gemini provider."""
         config = self._default_config()
-        if api_key:
-            config.api_key = api_key
-        if model:
-            config.default_model = model
         super().__init__(config)
         
         if model:
             self._model = model
         
-        self._oauth_token = None
-        self._oauth_refresh_token = None
-        self._oauth_expiry = 0
-        self._project_id = None
-        self._region = self.DEFAULT_REGION
-        self._use_vertex_ai = False  # Use Vertex AI for OAuth (gemini-cli style)
-        self._load_oauth_if_needed()
+        self._project_id: Optional[str] = None
+        self._credentials: Optional[dict] = None
+        self._oauth_client_id: Optional[str] = None
+        self._oauth_client_secret: Optional[str] = None
     
     def _default_config(self) -> ProviderConfig:
         return ProviderConfig(
             name="Gemini",
-            base_url="https://generativelanguage.googleapis.com/v1beta",
-            default_model="gemini-2.0-flash",
-            available_models=[
-                "gemini-2.5-pro",
-                "gemini-2.5-flash",
-                "gemini-2.0-flash",
-                "gemini-2.0-flash-lite",
-                "gemini-1.5-flash",
-                "gemini-1.5-flash-8b",
-                "gemini-1.5-pro",
-            ],
-            max_tokens=8192,
+            base_url="https://cloudcode-pa.googleapis.com",
+            default_model=GEMINI_DEFAULT_MODEL,
+            available_models=GEMINI_MODELS,
+            max_tokens=1_048_576,  # 1M tokens for most models
             supports_streaming=True,
             supports_functions=True,
-            rate_limit_rpm=60,
-            cost_per_1k_input=0.0,
-            cost_per_1k_output=0.0,
+            rate_limit_rpm=1500,
+            cost_per_1k_input=0.0001,  # $0.10 per 1M = $0.0001 per 1K (Flash/Flash-Lite)
+            cost_per_1k_output=0.0004,  # $0.40 per 1M = $0.0004 per 1K
         )
     
-    def _load_oauth_if_needed(self):
-        """Load OAuth credentials from file (gemini-cli compatible)."""
-        if self._api_key:
+    async def _fetch_oauth_config(self) -> None:
+        """Fetch OAuth client credentials from extension config."""
+        if self._oauth_client_id and self._oauth_client_secret:
             return
         
-        gemini_dir = Path(os.path.expanduser("~/.gemini"))
-        oauth_path = gemini_dir / "oauth_creds.json"
-        
-        if not oauth_path.exists():
-            return
-        
-        try:
-            with open(oauth_path, 'r') as f:
-                creds = json.load(f)
-            
-            self._oauth_token = creds.get('access_token')
-            self._oauth_refresh_token = creds.get('refresh_token')
-            self._oauth_expiry = creds.get('expiry_date', 0)
-            
-            # Load project ID from settings.json (gemini-cli style)
-            settings_path = gemini_dir / "settings.json"
-            if settings_path.exists():
-                with open(settings_path, 'r') as f:
-                    settings = json.load(f)
-                    self._project_id = settings.get('project_id')
-                    self._region = settings.get('region', self.DEFAULT_REGION)
-            
-            # Fallback to environment variables
-            if not self._project_id:
-                self._project_id = os.getenv('GOOGLE_CLOUD_PROJECT') or os.getenv('GCP_PROJECT')
-            
-            # OAuth requires Vertex AI endpoint
-            if self._oauth_token and self._project_id:
-                self._use_vertex_ai = True
-                print(f"[Gemini] OAuth mode: project={self._project_id}, region={self._region}")
-            elif self._oauth_token:
-                print("[Gemini] Warning: OAuth found but no project ID")
-                print("[Gemini] Set project_id in ~/.gemini/settings.json or GOOGLE_CLOUD_PROJECT env var")
-                
-        except Exception as e:
-            print(f"[Gemini] Warning: Failed to load OAuth: {e}")
-    
-    def _ensure_valid_token(self):
-        """Ensure we have a valid OAuth token."""
-        if self._google_creds:
+        async with httpx.AsyncClient() as client:
             try:
-                from google.auth.transport.requests import Request
-                if self._google_creds.expired and self._google_creds.refresh_token:
-                    self._google_creds.refresh(Request())
-                    self._oauth_token = self._google_creds.token
-                    self._save_oauth_token()
-            except Exception:
+                response = await client.get(EXTENSION_CONFIG_URL, timeout=30.0)
+                if response.status_code == 200:
+                    config = response.json()
+                    gemini_config = config.get("geminiCli", {})
+                    self._oauth_client_id = gemini_config.get("oauthClientId")
+                    self._oauth_client_secret = gemini_config.get("oauthClientSecret")
+            except Exception as e:
+                print(f"[GeminiCLI] Failed to fetch OAuth config: {e}")
+    
+    async def _load_oauth_credentials(self) -> dict:
+        """Load OAuth credentials from file."""
+        # First fetch OAuth config
+        await self._fetch_oauth_config()
+        
+        cred_path = Path.home() / ".gemini" / "oauth_creds.json"
+        if not cred_path.exists():
+            raise ValueError(
+                "Gemini OAuth credentials not found.\n"
+                "Please install Gemini CLI and run: gemini auth login\n"
+                "Or copy oauth_creds.json to ~/.gemini/"
+            )
+        
+        with open(cred_path, 'r') as f:
+            self._credentials = json.load(f)
+        
+        return self._credentials
+    
+    async def _ensure_authenticated(self) -> str:
+        """Ensure we have a valid access token, refreshing if needed."""
+        if not self._credentials:
+            await self._load_oauth_credentials()
+        
+        # Check if token needs refresh (expiry_date is in milliseconds)
+        expiry = self._credentials.get("expiry_date", 0)
+        if expiry < time.time() * 1000:
+            await self._refresh_token()
+        
+        return self._credentials["access_token"]
+    
+    async def _refresh_token(self) -> None:
+        """Refresh the OAuth access token."""
+        if not self._oauth_client_id or not self._oauth_client_secret:
+            await self._fetch_oauth_config()
+        
+        if not self._credentials.get("refresh_token"):
+            raise ValueError("No refresh token available")
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "client_id": self._oauth_client_id,
+                    "client_secret": self._oauth_client_secret,
+                    "refresh_token": self._credentials["refresh_token"],
+                    "grant_type": "refresh_token"
+                }
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                self._credentials["access_token"] = data["access_token"]
+                self._credentials["expiry_date"] = int(time.time() * 1000 + data.get("expires_in", 3600) * 1000)
+                if data.get("refresh_token"):
+                    self._credentials["refresh_token"] = data["refresh_token"]
+                
+                # Save refreshed credentials
+                cred_path = Path.home() / ".gemini" / "oauth_creds.json"
+                with open(cred_path, 'w') as f:
+                    json.dump(self._credentials, f, indent=2)
+            else:
+                raise ValueError(f"Token refresh failed: {response.status_code}")
+    
+    async def _call_endpoint(self, method: str, body: dict, access_token: str, retry: bool = True) -> dict:
+        """Call a Code Assist API endpoint."""
+        url = f"{CODE_ASSIST_ENDPOINT}/{CODE_ASSIST_API_VERSION}:{method}"
+        
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.post(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Content-Type": "application/json"
+                    },
+                    json=body,
+                    timeout=60.0
+                )
+                
+                if response.status_code == 401 and retry:
+                    await self._refresh_token()
+                    return await self._call_endpoint(method, body, self._credentials["access_token"], retry=False)
+                
+                response.raise_for_status()
+                return response.json()
+            except httpx.HTTPStatusError as e:
+                print(f"[GeminiCLI] Error calling {method}: {e}")
+                raise
+    
+    async def _discover_project_id(self, access_token: str) -> str:
+        """Discover or retrieve the project ID."""
+        if self._project_id:
+            return self._project_id
+        
+        # Check environment variable
+        project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
+        
+        # Check .gemini/.env file
+        env_path = Path.home() / ".gemini" / ".env"
+        if env_path.exists():
+            try:
+                with open(env_path, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith("GOOGLE_CLOUD_PROJECT="):
+                            project_id = line.split("=", 1)[1].strip()
+                            break
+            except IOError:
                 pass
-    
-    def _save_oauth_token(self):
-        """Save updated OAuth token to file."""
-        oauth_path = Path(os.path.expanduser("~/.gemini/oauth_creds.json"))
+        
+        # Prepare client metadata
+        client_metadata = {
+            "ideType": "IDE_UNSPECIFIED",
+            "platform": "PLATFORM_UNSPECIFIED",
+            "pluginType": "GEMINI",
+            "duetProject": project_id
+        }
+        
         try:
-            with open(oauth_path, 'r') as f:
-                creds = json.load(f)
+            # Call loadCodeAssist to discover project ID
+            load_request = {
+                "cloudaicompanionProject": project_id,
+                "metadata": client_metadata
+            }
             
-            creds['access_token'] = self._oauth_token
-            creds['expiry_date'] = self._oauth_expiry
+            load_response = await self._call_endpoint("loadCodeAssist", load_request, access_token)
             
-            with open(oauth_path, 'w') as f:
-                json.dump(creds, f, indent=2)
-        except Exception:
-            pass  # Ignore save errors
-    
-    def _get_headers(self) -> dict:
-        """Get request headers with authentication."""
-        headers = {"Content-Type": "application/json"}
-        
-        if self._oauth_token:
-            headers["Authorization"] = f"Bearer {self._oauth_token}"
-            # Required for OAuth billing/quota
-            if self._project_id:
-                headers["x-goog-user-project"] = self._project_id
-        
-        return headers
-    
-    def _get_url(self, model: str, action: str = "generateContent") -> str:
-        """Build the API URL (gemini-cli compatible)."""
-        if self._api_key:
-            return f"{self.GENAI_URL}/models/{model}:{action}?key={self._api_key}"
-        elif self._use_vertex_ai and self._project_id:
-            # Vertex AI endpoint for OAuth (gemini-cli style)
-            return f"https://{self._region}-aiplatform.googleapis.com/v1/projects/{self._project_id}/locations/{self._region}/publishers/google/models/{model}:{action}"
-        else:
-            # Fallback to Generative Language API
-            return f"{self.GENAI_URL}/models/{model}:{action}"
-    
-    def _convert_messages(self, messages: list[dict]) -> tuple[list, Optional[str]]:
-        """Convert OpenAI-style messages to Gemini format."""
-        contents = []
-        system_instruction = None
-        
-        for msg in messages:
-            role = msg.get("role", "user")
-            content = msg.get("content", "")
+            if load_response.get("cloudaicompanionProject"):
+                self._project_id = load_response["cloudaicompanionProject"]
+                return self._project_id
             
-            if role == "system":
-                system_instruction = content
-                continue
-            elif role == "assistant":
-                role = "model"
-            elif role == "tool":
-                # Handle tool response
-                contents.append({
-                    "role": "user",
-                    "parts": [{"text": f"Tool result: {content}"}]
-                })
-                continue
+            # If no existing project, onboard
+            default_tier = None
+            for tier in load_response.get("allowedTiers", []):
+                if tier.get("isDefault"):
+                    default_tier = tier
+                    break
             
-            contents.append({
-                "role": role,
-                "parts": [{"text": content}]
-            })
-        
-        return contents, system_instruction
+            tier_id = default_tier.get("id", "free-tier") if default_tier else "free-tier"
+            
+            onboard_request = {
+                "tierId": tier_id,
+                "cloudaicompanionProject": project_id,
+                "metadata": client_metadata
+            }
+            
+            # Poll for onboarding completion
+            max_retries = 30
+            for _ in range(max_retries):
+                lro_response = await self._call_endpoint("onboardUser", onboard_request, access_token)
+                if lro_response.get("done"):
+                    self._project_id = lro_response.get("response", {}).get("cloudaicompanionProject", {}).get("id", project_id) or project_id
+                    return self._project_id
+                await asyncio.sleep(2)
+            
+            # Fallback
+            self._project_id = project_id or "default-project"
+            return self._project_id
+            
+        except Exception as e:
+            print(f"[GeminiCLI] Project discovery failed: {e}")
+            self._project_id = project_id or "default-project"
+            return self._project_id
     
     async def chat(
         self,
@@ -206,82 +260,131 @@ class GeminiProvider(LLMProvider):
         max_tokens: Optional[int] = None,
         **kwargs: Any
     ) -> LLMResponse:
-        """Send a chat completion request to Gemini."""
+        """Send a chat completion request to Gemini via Code Assist API."""
+        access_token = await self._ensure_authenticated()
+        project_id = await self._discover_project_id(access_token)
+        
         model = model or self._model
         temperature = temperature if temperature is not None else self._config.temperature
         max_tokens = max_tokens or self._config.max_tokens
         
-        # Ensure valid OAuth token
-        if self._oauth_token:
-            self._ensure_valid_token()
+        # Convert messages to Gemini format
+        contents = self._convert_messages(messages)
         
-        contents, system_instruction = self._convert_messages(messages)
-        
-        # Build request payload
-        payload = {
-            "contents": contents,
-            "generationConfig": {
-                "temperature": temperature,
-                "maxOutputTokens": max_tokens,
+        request_body = {
+            "model": model,
+            "project": project_id,
+            "request": {
+                "contents": contents,
+                "generationConfig": {
+                    "temperature": temperature,
+                    "maxOutputTokens": max_tokens
+                }
             }
         }
         
-        if system_instruction:
-            payload["systemInstruction"] = {
-                "parts": [{"text": system_instruction}]
-            }
+        start_time = time.perf_counter()
         
-        # Handle tools if provided
-        tools_param = kwargs.pop("tools", None)
-        if tools_param:
-            payload["tools"] = self._convert_tools(tools_param)
+        url = f"{CODE_ASSIST_ENDPOINT}/{CODE_ASSIST_API_VERSION}:generateContent"
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                url,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json"
+                },
+                json=request_body,
+                timeout=120.0
+            )
+            
+        contents = self._convert_messages(messages)
+        
+        request_body = {
+            "model": model,
+            "project": project_id,
+            "request": {
+                "contents": contents,
+                "generationConfig": {
+                    "temperature": temperature,
+                    "maxOutputTokens": max_tokens
+                }
+            }
+        }
+        
+        # Add tools if provided
+        tools = kwargs.get("tools")
+        if tools:
+            request_body["request"]["tools"] = self._convert_tools(tools)
+        
+        url = f"{CODE_ASSIST_ENDPOINT}/{CODE_ASSIST_API_VERSION}:generateContent"
         
         start_time = time.perf_counter()
         
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                self._get_url(model),
-                headers=self._get_headers(),
-                json=payload,
+                url,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json"
+                },
+                json=request_body,
                 timeout=120.0
             )
+            
+            if response.status_code == 401:
+                await self._refresh_token()
+                response = await client.post(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {self._credentials['access_token']}",
+                        "Content-Type": "application/json"
+                    },
+                    json=request_body,
+                    timeout=120.0
+                )
+            
             response.raise_for_status()
             data = response.json()
         
         latency_ms = (time.perf_counter() - start_time) * 1000
         
-        # Extract response content
+        # Extract response
+        response_data = data.get("response", data)
         content = ""
-        raw_response = {"model": model, "choices": [{"message": {}}]}
+        tool_calls = []
         
-        if "candidates" in data and data["candidates"]:
-            candidate = data["candidates"][0]
-            if "content" in candidate and "parts" in candidate["content"]:
-                parts = candidate["content"]["parts"]
-                for part in parts:
-                    if "text" in part:
-                        content = part["text"]
-                    elif "functionCall" in part:
-                        # Convert to OpenAI-compatible format
-                        fc = part["functionCall"]
-                        raw_response["choices"][0]["message"] = {
-                            "content": None,
-                            "tool_calls": [{
-                                "id": f"call_{int(time.time())}",
-                                "type": "function",
-                                "function": {
-                                    "name": fc.get("name", ""),
-                                    "arguments": json.dumps(fc.get("args", {}))
-                                }
-                            }]
+        if response_data.get("candidates"):
+            candidate = response_data["candidates"][0]
+            for part in candidate.get("content", {}).get("parts", []):
+                if part.get("text") and not part.get("thought"):
+                    content += part["text"]
+                elif part.get("functionCall"):
+                    fc = part["functionCall"]
+                    # Create OpenAI-style tool call
+                    import uuid
+                    tool_calls.append({
+                        "id": f"call_{uuid.uuid4().hex[:8]}",
+                        "type": "function",
+                        "function": {
+                            "name": fc.get("name"),
+                            "arguments": json.dumps(fc.get("args", {}))
                         }
+                    })
         
-        # Get token counts
-        input_tokens = 0
-        output_tokens = 0
-        if "usageMetadata" in data:
-            input_tokens = data["usageMetadata"].get("promptTokenCount", 0)
-            output_tokens = data["usageMetadata"].get("candidatesTokenCount", 0)
+        # Inject tool_calls into raw_response for CLI to find
+        if tool_calls:
+            # Construct a fake OpenAI response structure inside the raw data
+            # because CLI looks at raw_response['choices'][0]['message']['tool_calls']
+            if "choices" not in data:
+                data["choices"] = [{"message": {}}]
+            
+            data["choices"][0]["message"]["tool_calls"] = tool_calls
+            data["choices"][0]["message"]["content"] = content
+        
+        usage = response_data.get("usageMetadata", {})
+        input_tokens = usage.get("promptTokenCount", 0)
+        output_tokens = usage.get("candidatesTokenCount", 0)
         
         return LLMResponse(
             content=content,
@@ -289,10 +392,10 @@ class GeminiProvider(LLMProvider):
             provider=self.name,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            cost=self.calculate_cost(input_tokens, output_tokens),
-            finish_reason="stop",
+            cost=0.0,
+            finish_reason="tool_calls" if tool_calls else "stop",
             latency_ms=latency_ms,
-            raw_response=raw_response
+            raw_response=data
         )
     
     async def chat_stream(
@@ -303,36 +406,41 @@ class GeminiProvider(LLMProvider):
         max_tokens: Optional[int] = None,
         **kwargs: Any
     ) -> AsyncGenerator[StreamChunk, None]:
-        """Send a streaming chat completion request to Gemini."""
+        """Send a streaming chat completion request."""
+        access_token = await self._ensure_authenticated()
+        project_id = await self._discover_project_id(access_token)
+        
         model = model or self._model
         temperature = temperature if temperature is not None else self._config.temperature
         max_tokens = max_tokens or self._config.max_tokens
         
-        if self._oauth_token:
-            self._ensure_valid_token()
+        contents = self._convert_messages(messages)
         
-        contents, system_instruction = self._convert_messages(messages)
-        
-        payload = {
-            "contents": contents,
-            "generationConfig": {
-                "temperature": temperature,
-                "maxOutputTokens": max_tokens,
+        request_body = {
+            "model": model,
+            "project": project_id,
+            "request": {
+                "contents": contents,
+                "generationConfig": {
+                    "temperature": temperature,
+                    "maxOutputTokens": max_tokens
+                }
             }
         }
         
-        if system_instruction:
-            payload["systemInstruction"] = {
-                "parts": [{"text": system_instruction}]
-            }
+        url = f"{CODE_ASSIST_ENDPOINT}/{CODE_ASSIST_API_VERSION}:streamGenerateContent"
         
         async with httpx.AsyncClient() as client:
             async with client.stream(
                 "POST",
-                self._get_url(model, "streamGenerateContent"),
-                headers=self._get_headers(),
-                json=payload,
-                timeout=120.0
+                url,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json"
+                },
+                params={"alt": "sse"},
+                json=request_body,
+                timeout=180.0
             ) as response:
                 response.raise_for_status()
                 
@@ -340,67 +448,141 @@ class GeminiProvider(LLMProvider):
                 async for chunk in response.aiter_text():
                     buffer += chunk
                     
-                    # Parse JSON objects from buffer
-                    while True:
+                    while "\n" in buffer:
+                        line, buffer = buffer.split("\n", 1)
+                        line = line.strip()
+                        
+                        if not line or not line.startswith("data: "):
+                            continue
+                        
+                        data_str = line[6:]
+                        if data_str == "[DONE]":
+                            return
+                        
                         try:
-                            # Try to find complete JSON object
-                            if buffer.startswith("["):
-                                buffer = buffer[1:]
-                            if buffer.startswith(","):
-                                buffer = buffer[1:]
-                            if buffer.startswith("]"):
-                                break
+                            data = json.loads(data_str)
+                            response_data = data.get("response", data)
                             
-                            # Find end of JSON object
-                            brace_count = 0
-                            end_idx = -1
-                            for i, c in enumerate(buffer):
-                                if c == '{':
-                                    brace_count += 1
-                                elif c == '}':
-                                    brace_count -= 1
-                                    if brace_count == 0:
-                                        end_idx = i + 1
-                                        break
-                            
-                            if end_idx == -1:
-                                break
-                            
-                            json_str = buffer[:end_idx]
-                            buffer = buffer[end_idx:]
-                            
-                            data = json.loads(json_str)
-                            
-                            if "candidates" in data and data["candidates"]:
-                                candidate = data["candidates"][0]
-                                if "content" in candidate and "parts" in candidate["content"]:
-                                    for part in candidate["content"]["parts"]:
-                                        if "text" in part:
-                                            yield StreamChunk(
-                                                content=part["text"],
-                                                finish_reason=None,
-                                                model=model
-                                            )
+                            if response_data.get("candidates"):
+                                candidate = response_data["candidates"][0]
+                                for part in candidate.get("content", {}).get("parts", []):
+                                    text = part.get("text", "")
+                                    if text and not part.get("thought"):
+                                        yield StreamChunk(
+                                            content=text,
+                                            finish_reason=candidate.get("finishReason"),
+                                            model=model
+                                        )
+                                
+                                if candidate.get("finishReason"):
+                                    return
                         except json.JSONDecodeError:
-                            break
+                            continue
     
-    def _convert_tools(self, tools: list) -> list:
-        """Convert OpenAI-style tools to Gemini format."""
-        function_declarations = []
-        
+    def _convert_tools(self, tools: list[dict]) -> list[dict]:
+        """Convert OpenAI tools to Gemini format."""
+        if not tools:
+            return []
+            
+        gemini_tools = []
         for tool in tools:
             if tool.get("type") == "function":
                 func = tool.get("function", {})
-                function_declarations.append({
+                gemini_tools.append({
                     "name": func.get("name"),
-                    "description": func.get("description", ""),
-                    "parameters": func.get("parameters", {})
+                    "description": func.get("description"),
+                    "parameters": func.get("parameters")
                 })
         
-        if function_declarations:
-            return [{"functionDeclarations": function_declarations}]
-        return []
+        return [{"function_declarations": gemini_tools}]
+
+    def _convert_messages(self, messages: list[dict]) -> list[dict]:
+        """Convert OpenAI-style messages to Gemini format."""
+        contents = []
+        
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            tool_calls = msg.get("tool_calls")
+            tool_call_id = msg.get("tool_call_id")
+            
+            parts = []
+            
+            # Handle text content
+            if content:
+                if isinstance(content, str):
+                    parts.append({"text": content})
+                elif isinstance(content, list):
+                    for item in content:
+                        if isinstance(item, str):
+                            parts.append({"text": item})
+                        elif isinstance(item, dict) and item.get("type") == "text":
+                            parts.append({"text": item.get("text", "")})
+            
+            # Handle tool calls (Assistant -> Model)
+            if role == "assistant" and tool_calls:
+                gemini_role = "model"
+                for tool_call in tool_calls:
+                    func = tool_call.get("function", {})
+                    try:
+                        args = json.loads(func.get("arguments", "{}"))
+                    except json.JSONDecodeError:
+                        args = {}
+                    
+                    parts.append({
+                        "functionCall": {
+                            "name": func.get("name"),
+                            "args": args
+                        }
+                    })
+            
+            # Handle tool results (Tool -> Function)
+            elif role == "tool":
+                gemini_role = "function"
+                # We need to find the function name. OpenAI sends ID, Gemini needs Name.
+                # In a real implementation we'd track IDs, but for now we'll try to infer 
+                # or just use a placeholder if we can't find it in context.
+                # However, Gemini is strict. 
+                # Strategy: Look back at previous assistant message to find name for this ID?
+                # Since we process sequentially, we can't easily look back here without passing context.
+                # BUT, usually the tool result comes right after the call.
+                # For this implementation, we'll try to extract name if it was preserved, 
+                # or rely on the fact that we might need to store a mapping.
+                # Let's assume the CLI might pass 'name' in the tool message if we modified it,
+                # but standard OpenAI doesn't.
+                
+                # Hack: We'll search backwards in 'messages' to find the tool call with this ID
+                # This is inefficient but necessary without state
+                func_name = "unknown_tool"
+                for prev_msg in reversed(messages):
+                    if prev_msg.get("role") == "assistant" and prev_msg.get("tool_calls"):
+                        for tc in prev_msg["tool_calls"]:
+                            if tc.get("id") == tool_call_id:
+                                func_name = tc["function"]["name"]
+                                break
+                        if func_name != "unknown_tool":
+                            break
+                
+                # Gemini expects 'response' object
+                parts.append({
+                    "functionResponse": {
+                        "name": func_name,
+                        "response": {"result": content}
+                    }
+                })
+            
+            # Regular roles
+            elif role == "assistant":
+                gemini_role = "model"
+            else:
+                gemini_role = "user"
+            
+            if parts:
+                contents.append({"role": gemini_role, "parts": parts})
+        
+        return contents
     
     async def list_models(self) -> list[str]:
-        """List available models."""
-        return self._config.available_models
+        """List available Gemini models."""
+        return GEMINI_MODELS
+

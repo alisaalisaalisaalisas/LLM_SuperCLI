@@ -255,10 +255,22 @@ class InteractiveCompleter:
         self._shell_completer = ShellCompleter()
         self._active_completer: Optional[str] = None
         self._current_items: List[Tuple[str, str]] = []
+        self._at_mention_start: int = -1  # Position of @ in text
     
     def set_commands(self, commands: List[dict]) -> None:
         """Set available commands."""
         self._command_completer.set_commands(commands)
+    
+    def _find_at_mention(self, text: str) -> Tuple[int, str]:
+        """Find the current @ mention being typed. Returns (start_pos, mention_text)."""
+        last_at = text.rfind('@')
+        if last_at == -1:
+            return (-1, "")
+        text_after_at = text[last_at:]
+        # Check if there's a space after this @, meaning it's completed
+        if ' ' in text_after_at[1:]:
+            return (-1, "")
+        return (last_at, text_after_at)
     
     def get_completions(self, text: str) -> Tuple[List[Tuple[str, str]], str]:
         """
@@ -270,24 +282,36 @@ class InteractiveCompleter:
         Returns:
             Tuple of (completions, completer_type)
         """
-        text = text.strip()
+        stripped = text.strip()
         
-        if text.startswith("/"):
+        if stripped.startswith("/"):
             self._active_completer = "command"
-            items = self._command_completer.get_completions(text)
-        elif text.startswith("@"):
-            self._active_completer = "file"
-            items = self._file_completer.get_completions(text)
-        elif text.startswith("!"):
+            self._at_mention_start = -1
+            items = self._command_completer.get_completions(stripped)
+        elif stripped.startswith("!"):
             self._active_completer = "shell"
-            items = self._shell_completer.get_completions(text)
+            self._at_mention_start = -1
+            items = self._shell_completer.get_completions(stripped)
         else:
-            self._active_completer = None
-            items = []
+            # Check for @ anywhere in text
+            at_pos, at_text = self._find_at_mention(text)
+            if at_pos >= 0:
+                self._active_completer = "file"
+                self._at_mention_start = at_pos
+                items = self._file_completer.get_completions(at_text)
+            else:
+                self._active_completer = None
+                self._at_mention_start = -1
+                items = []
         
         self._current_items = items
         self._menu.set_items(items)
         return items, self._active_completer or ""
+    
+    @property
+    def at_mention_start(self) -> int:
+        """Get the start position of current @ mention."""
+        return self._at_mention_start
     
     def render_menu(self) -> str:
         """Render current completion menu."""

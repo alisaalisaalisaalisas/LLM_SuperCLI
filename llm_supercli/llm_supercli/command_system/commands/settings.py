@@ -28,24 +28,21 @@ class SettingsCommand(SlashCommand):
         parts = args.strip().split(maxsplit=1)
         
         # Interactive mode - show falling menu
+        # Default to interactive if no args, or if -i flag is present
         if not parts or (len(parts) == 1 and parts[0] in ["-i", "--interactive"]):
-            if parts and parts[0] in ["-i", "--interactive"]:
-                # Force interactive with falling menu
-                menu = SettingsMenu()
-                result = menu.show(config)
-                if result:
-                    key, value = result
-                    # Handle combined provider + model change
-                    if key == "provider_and_model":
-                        provider, model = value
-                        self._set_setting(config, "provider", provider)
-                        return self._set_setting(config, "model", model)
-                    return self._set_setting(config, key, value)
-                else:
-                    return CommandResult.info("Settings modification cancelled")
-            # Show settings if no args, then offer interactive menu
-            self._show_settings(config)
-            # Prompt for interactive mode
+            # Force interactive with falling menu
+            menu = SettingsMenu()
+            result = menu.show(config)
+            if result:
+                key, value = result
+                # Handle combined provider + model change
+                if key == "provider_and_model":
+                    provider, model = value
+                    self._set_setting(config, "provider", provider)
+                    return self._set_setting(config, "model", model)
+                return self._set_setting(config, key, value)
+            else:
+                return CommandResult.info("Settings modification cancelled")
             from rich.console import Console
             console = Console()
             try:
