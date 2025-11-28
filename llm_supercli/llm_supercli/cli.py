@@ -57,6 +57,13 @@ class CLI:
         )
         self._renderer.print()
         
+        # Print startup tips
+        self._renderer.print("[dim]Tips:[/dim]")
+        self._renderer.print("[dim]1. Ask questions, edit files, or run commands[/dim]")
+        self._renderer.print("[dim]2. Use @file to include file contents[/dim]")
+        self._renderer.print("[dim]3. Use /help for more information[/dim]")
+        self._renderer.print()
+        
         while self._running:
             try:
                 user_input = self._input.get_input(
