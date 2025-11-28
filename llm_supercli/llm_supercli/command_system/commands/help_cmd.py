@@ -1,6 +1,9 @@
 """Help command for llm_supercli."""
 from typing import Any
 
+from rich.console import Console
+from rich.text import Text
+
 from ..base import SlashCommand, CommandResult
 from ..registry import get_command_registry
 
@@ -9,7 +12,7 @@ class HelpCommand(SlashCommand):
     """Display help information."""
     
     name = "help"
-    description = "Show help information for commands"
+    description = "Show available slash commands"
     aliases = ["h", "?"]
     usage = "[command]"
     examples = ["/help", "/help model", "/help mcp"]
@@ -29,25 +32,23 @@ class HelpCommand(SlashCommand):
         
         commands = registry.list_commands()
         
-        lines = [
-            "# LLM SuperCLI Help",
-            "",
-            "## Available Commands",
-            ""
-        ]
+        console = Console()
         
-        for cmd in commands:
-            aliases = f" ({', '.join(cmd['aliases'])})" if cmd['aliases'] else ""
-            lines.append(f"**/{cmd['name']}**{aliases} - {cmd['description']}")
+        max_name_len = max(len(cmd['name']) for cmd in commands) if commands else 10
         
-        lines.extend([
-            "",
-            "## Special Syntax",
-            "",
-            "- `!command` - Execute shell command",
-            "- `@file` - Include file contents in prompt",
-            "",
-            "Type `/help <command>` for detailed help on a specific command."
-        ])
+        header = Text()
+        header.append("● ", style="cyan")
+        header.append("Available Commands:", style="bold")
+        console.print(header)
+        console.print()
         
-        return CommandResult.success("\n".join(lines))
+        for cmd in sorted(commands, key=lambda x: x['name']):
+            line = Text()
+            line.append(f"  /{cmd['name']:<{max_name_len + 2}}", style="cyan")
+            line.append(f"- {cmd['description']}", style="dim")
+            console.print(line)
+        
+        console.print()
+        console.print("Other commands will be passed to the LLM.", style="dim")
+        
+        return CommandResult.success("")
