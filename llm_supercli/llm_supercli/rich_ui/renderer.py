@@ -92,14 +92,9 @@ class RichRenderer:
         )
     
     def print_welcome(self) -> None:
-        """Print welcome message with instructions."""
-        self.print_banner("small")
-        self._console.print()
-        self._console.print("[dim]Tips:[/dim]")
-        self._console.print("[dim]1. Ask questions, edit files, or run commands[/dim]")
-        self._console.print("[dim]2. Use [bold]@file[/bold] to include file contents[/dim]")
-        self._console.print("[dim]3. Use [bold]/help[/bold] for more information[/dim]")
-        self._console.print()
+        """Print welcome message with cyberpunk splash screen."""
+        from .splash import print_splash
+        print_splash(self._console)
     
     def print_message(
         self,

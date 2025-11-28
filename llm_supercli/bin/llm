@@ -1,0 +1,13 @@
+#!/usr/bin/env node
+const { spawn } = require('child_process');
+const path = require('path');
+
+const args = process.argv.slice(2);
+const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+
+const child = spawn(pythonCmd, ['-m', 'llm_supercli', ...args], {
+  stdio: 'inherit',
+  cwd: path.join(__dirname, '..')
+});
+
+child.on('close', (code) => process.exit(code));
