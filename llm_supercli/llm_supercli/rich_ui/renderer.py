@@ -328,6 +328,10 @@ class RichRenderer:
             tokens: Optional (input, output) token counts
             cost: Optional cost value
         """
+        # OAuth-based free tier providers
+        free_providers = ["gemini", "qwen"]
+        is_free = provider.lower() in free_providers
+        
         parts = [
             f"[bold cyan]{provider.title()}[/]",
             f"[dim]/[/dim]",
@@ -339,7 +343,9 @@ class RichRenderer:
             total = input_t + output_t
             parts.append(f"[dim]|[/dim] [dim]{total} tokens[/]")
         
-        if cost is not None and cost > 0:
+        if is_free:
+            parts.append(f"[dim]|[/dim] [green]Free[/]")
+        elif cost is not None and cost > 0:
             parts.append(f"[dim]|[/dim] [green]${cost:.4f}[/]")
         
         self._console.print(" ".join(parts))

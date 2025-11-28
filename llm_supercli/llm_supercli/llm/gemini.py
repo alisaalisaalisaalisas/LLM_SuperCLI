@@ -124,7 +124,10 @@ class GeminiProvider(LLMProvider):
             await self._fetch_oauth_config()
         
         if not self._credentials.get("refresh_token"):
-            raise ValueError("No refresh token available")
+            raise ValueError(
+                "No refresh token available.\n"
+                "Please re-login with: /login gemini"
+            )
         
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -149,7 +152,18 @@ class GeminiProvider(LLMProvider):
                 with open(cred_path, 'w') as f:
                     json.dump(self._credentials, f, indent=2)
             else:
-                raise ValueError(f"Token refresh failed: {response.status_code}")
+                # Parse error response for better message
+                try:
+                    error_data = response.json()
+                    error_msg = error_data.get("error_description", error_data.get("error", "Unknown error"))
+                except Exception:
+                    error_msg = f"HTTP {response.status_code}"
+                
+                raise ValueError(
+                    f"Token refresh failed: {error_msg}\n"
+                    "Your Gemini session may have expired.\n"
+                    "Please re-login with: /login gemini"
+                )
     
     async def _call_endpoint(self, method: str, body: dict, access_token: str, retry: bool = True) -> dict:
         """Call a Code Assist API endpoint."""
