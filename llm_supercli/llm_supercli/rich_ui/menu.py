@@ -71,103 +71,94 @@ def select_from_list(
     return result
 
 
-def select_model_interactive(registry) -> Optional[Tuple[str, str]]:
+def select_model_interactive(registry, current_provider: Optional[str] = None) -> Optional[Tuple[str, str]]:
     """
-    Interactive model selection menu.
+    Interactive model selection menu using FallingMenu.
     
+    Args:
+        registry: Provider registry
+        current_provider: Currently selected provider name (optional)
+        
     Returns:
         Tuple of (provider, model) or None if cancelled
     """
-    try:
-        # First, select provider
+    from .falling_menu import FallingMenu
+    
+    # Helper to get provider items
+    def get_provider_items():
         all_models = registry.list_all_models()
-        
-        if not all_models:
-            console.print("[red]No providers available. Please configure API keys.[/red]")
-            return None
-        
-        console.print(f"[dim]Found {len(all_models)} providers[/dim]")
-        
-        provider_items = []
+        items = []
         for provider, models in all_models.items():
             info = registry.get_provider_info(provider)
             has_key = info.get("has_api_key", False) if info else False
-            key_status = "✓" if has_key else "✗"
-            label = f"{provider.title()} [{key_status}] ({len(models)} models)"
-            provider_items.append((provider, label))
+            status = "[OK]" if has_key else "[No Key]"
+            desc = "OAuth" if provider in ["gemini", "qwen"] else "API Key"
+            items.append((provider, f"{provider.title()} {status}", f"{len(models)} models ({desc})"))
+        return items
+
+    # Helper to get model items
+    def get_model_items(provider):
+        all_models = registry.list_all_models()
+        models = all_models.get(provider, [])
+        items = []
         
-        try:
-            selected_provider = select_from_list(
-                title="Select Provider",
-                items=provider_items,
-                description="Choose an LLM provider (✓ = API key configured)"
-            )
-        except Exception as e:
-            console.print(f"[yellow]Dialog error: {e}[/yellow]")
-            console.print("[yellow]Falling back to console selection...[/yellow]\n")
-            
-            # Fallback: console-based selection
-            console.print("[bold cyan]Available Providers:[/bold cyan]")
-            for idx, (provider, label) in enumerate(provider_items, 1):
-                console.print(f"  {idx}. {label}")
-            
-            from rich.prompt import IntPrompt
-            choice = IntPrompt.ask(
-                "Select provider number",
-                choices=[str(i) for i in range(1, len(provider_items) + 1)]
-            )
-            selected_provider = provider_items[choice - 1][0]
+        # Add "Change Provider" option
+        items.append(("__change_provider__", ".. (Change Provider)", "Switch to a different provider"))
         
+        for model in models:
+            items.append((model, model, ""))
+        return items
+
+    selected_provider = current_provider
+    
+    while True:
+        # If no provider selected (or user chose to change), show provider list
         if not selected_provider:
-            return None
-        
-        # Then, select model from that provider
-        models = all_models.get(selected_provider, [])
-        if not models:
-            console.print(f"[red]No models available for {selected_provider}[/red]")
-            return None
-        
-        console.print(f"[dim]Found {len(models)} models for {selected_provider}[/dim]")
-        
-        # Limit to first 50 models for usability
-        display_models = models[:50]
-        model_items = [(model, model) for model in display_models]
-        
-        if len(models) > 50:
-            console.print(f"[yellow]Showing first 50 of {len(models)} models[/yellow]")
-        
-        try:
-            selected_model = select_from_list(
-                title=f"Select Model from {selected_provider.title()}",
-                items=model_items,
-                description=f"Choose a model from {selected_provider}"
-            )
-        except Exception as e:
-            console.print(f"[yellow]Dialog error: {e}[/yellow]")
-            console.print("[yellow]Falling back to console selection...[/yellow]\n")
+            menu = FallingMenu(console, title="Select Provider", style="green")
+            selected_provider = menu.show(get_provider_items())
             
-            # Fallback: console-based selection
-            console.print(f"[bold cyan]Available Models for {selected_provider.title()}:[/bold cyan]")
-            for idx, (model, _) in enumerate(model_items, 1):
-                console.print(f"  {idx}. {model}")
-            
-            from rich.prompt import IntPrompt
-            choice = IntPrompt.ask(
-                "Select model number",
-                choices=[str(i) for i in range(1, len(model_items) + 1)]
-            )
-            selected_model = model_items[choice - 1][0]
+            if not selected_provider:
+                return None
+        
+        # Check configuration
+        info = registry.get_provider_info(selected_provider)
+        if not info.get("has_api_key"):
+            if selected_provider in ["gemini", "qwen"]:
+                console.print(f"[yellow]Authentication required for {selected_provider.title()}.[/]")
+                console.print(f"Please run: [bold]/login {selected_provider}[/]")
+                console.input("[dim]Press Enter to continue...[/]")
+                # Go back to provider selection
+                selected_provider = None
+                continue
+            else:
+                # Ask for API key
+                console.print(f"[yellow]API Key required for {selected_provider.title()}.[/]")
+                key = console.input(f"[bold]Enter API Key (or press Enter to cancel): [/]")
+                if key.strip():
+                    registry.set_api_key(selected_provider, key.strip())
+                    # Continue to model selection
+                else:
+                    # Cancelled key entry, go back
+                    selected_provider = None
+                    continue
+
+        # Show models for selected provider
+        menu = FallingMenu(console, title=f"Select Model ({selected_provider})", style="cyan")
+        selected_model = menu.show(get_model_items(selected_provider))
         
         if not selected_model:
-            return None
-        
+            # If cancelled model selection, go back to provider selection if we weren't forced to this provider
+            if current_provider and selected_provider == current_provider:
+                return None # Exit if we started here
+            selected_provider = None
+            continue
+            
+        if selected_model == "__change_provider__":
+            selected_provider = None
+            current_provider = None # Clear this so we don't exit on next cancel
+            continue
+            
         return (selected_provider, selected_model)
-    
-    except Exception as e:
-        console.print(f"[red]Error in model selection: {e}[/red]")
-        import traceback
-        console.print(f"[dim]{traceback.format_exc()}[/dim]")
-        return None
 
 
 def confirm_action(message: str, default: bool = False) -> bool:

@@ -50,6 +50,13 @@ class CLI:
         self._renderer.print_welcome()
         self._ensure_session()
         
+        # Print initial model status
+        self._renderer.print_status(
+            provider=self._config.llm.provider,
+            model=self._config.llm.model
+        )
+        self._renderer.print()
+        
         while self._running:
             try:
                 user_input = self._input.get_input(

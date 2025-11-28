@@ -33,7 +33,7 @@ class ModelCommand(SlashCommand):
         
         # Interactive mode: no args or -i flag
         if not args or args in ["-i", "--interactive"]:
-            result = select_model_interactive(registry)
+            result = select_model_interactive(registry, current_provider=config.llm.provider)
             if result:
                 provider_name, model_name = result
                 config.update_llm(provider=provider_name, model=model_name)
