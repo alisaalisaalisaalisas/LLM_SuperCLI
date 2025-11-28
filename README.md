@@ -1,4 +1,5 @@
 # LLM SuperCLI
+<img width="958" height="357" alt="image" src="https://github.com/user-attachments/assets/d85b2812-eb56-4867-b60a-1fefa8f281f0" />
 
 A powerful multi-provider LLM command line interface with OAuth support, interactive menus, and streaming responses.
 
