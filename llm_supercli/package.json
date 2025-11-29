@@ -1,6 +1,6 @@
 {
   "name": "llm-supercli",
-  "version": "1.0.16",
+  "version": "1.0.17",
   "description": "A powerful multi-provider LLM command line interface",
   "files": [
     "bin/",
