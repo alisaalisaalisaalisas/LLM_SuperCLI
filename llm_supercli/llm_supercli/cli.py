@@ -447,31 +447,40 @@ IMPORTANT: Always include a response AFTER the </think> tag. The thinking is opt
             # write_file('path', 'content')
             for match in re.finditer(r'write_file\s*\(\s*[\'"]([^\'"]+)[\'"]\s*,\s*[\'"]([\s\S]*?)[\'"]\s*\)', content):
                 path, file_content = match.groups()
-                self._renderer.print(f"[dim]> Writing: {path}[/dim]")
+                self._renderer.print(f"[cyan]📝 Writing file:[/cyan] {path}")
                 try:
                     result = self._tools.execute("write_file", {"path": path, "content": file_content})
-                    tool_results.append(f"write_file({path}): {result}")
+                    self._renderer.print(f"[green]   ✓ Created successfully[/green]")
+                    tool_results.append(f"write_file({path}): success")
                 except Exception as e:
+                    self._renderer.print(f"[red]   ✗ Error: {e}[/red]")
                     tool_results.append(f"write_file error: {e}")
             
             # Single-arg tools
             for tool_name, arg in re.findall(r'(list_directory|read_file|create_directory)\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)', content):
-                self._renderer.print(f"[dim]> {tool_name}({arg})[/dim]")
+                icons = {"list_directory": "📂", "read_file": "📖", "create_directory": "📁"}
+                self._renderer.print(f"[cyan]{icons.get(tool_name, '🔧')} {tool_name}:[/cyan] {arg}")
                 try:
                     result = self._tools.execute(tool_name, {"path": arg})
-                    preview = result[:200] + "..." if len(result) > 200 else result
-                    tool_results.append(f"{tool_name}: {preview}")
+                    preview = result[:150] + "..." if len(result) > 150 else result
+                    self._renderer.print(f"[dim]   {preview}[/dim]")
+                    tool_results.append(f"{tool_name}: {result}")
                 except Exception as e:
+                    self._renderer.print(f"[red]   ✗ Error: {e}[/red]")
                     tool_results.append(f"{tool_name} error: {e}")
             
             # run_command
             for cmd in re.findall(r'run_command\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)', content):
-                self._renderer.print(f"[dim]> Running: {cmd}[/dim]")
+                self._renderer.print(f"[cyan]⚡ Running:[/cyan] {cmd}")
                 try:
                     result = self._tools.execute("run_command", {"command": cmd})
-                    preview = result[:200] + "..." if len(result) > 200 else result
-                    tool_results.append(f"run_command: {preview}")
+                    preview = result[:150] + "..." if len(result) > 150 else result
+                    if preview.strip():
+                        self._renderer.print(f"[dim]   {preview}[/dim]")
+                    self._renderer.print(f"[green]   ✓ Done[/green]")
+                    tool_results.append(f"run_command: {result}")
                 except Exception as e:
+                    self._renderer.print(f"[red]   ✗ Error: {e}[/red]")
                     tool_results.append(f"run_command error: {e}")
             
             if tool_results:
