@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Final
 
 APP_NAME: Final[str] = "llm_supercli"
-APP_VERSION: Final[str] = "1.0.11"
+APP_VERSION: Final[str] = "1.0.12"
 APP_DESCRIPTION: Final[str] = "A powerful multi-provider LLM command line interface"
 
 CONFIG_DIR: Final[Path] = Path.home() / ".llm_supercli"
