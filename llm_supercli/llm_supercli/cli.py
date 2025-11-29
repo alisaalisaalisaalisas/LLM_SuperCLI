@@ -262,8 +262,12 @@ class CLI:
             # Build context with system message including current directory
             context = self._build_context_with_tools(session)
             
-            # Use non-streaming for tool support
-            await self._get_response_with_tools(provider, context, session)
+            # Providers without native tool support - use simple streaming
+            no_tool_providers = ["qwen", "gemini"]
+            if self._config.llm.provider in no_tool_providers:
+                await self._get_streaming_response(provider, context, session)
+            else:
+                await self._get_response_with_tools(provider, context, session)
                 
         except Exception as e:
             self._renderer.print_error(f"LLM Error: {e}")
@@ -410,6 +414,74 @@ IMPORTANT: Always include a response AFTER the </think> tag. The thinking is opt
                 
         finally:
             self._renderer.stop_spinner()
+    
+    async def _get_streaming_response(self, provider, context: list, session) -> None:
+        """Streaming response with text-based tool parsing for providers without native tool support."""
+        import re
+        messages = context.copy()
+        max_iterations = 5
+        
+        for _ in range(max_iterations):
+            self._renderer.start_live_reasoning()
+            try:
+                async for chunk in provider.chat_stream(
+                    messages=messages,
+                    model=self._config.llm.model,
+                    temperature=self._config.llm.temperature,
+                    max_tokens=self._config.llm.max_tokens
+                ):
+                    self._renderer.update_live_stream(chunk.content)
+            finally:
+                response_content, reasoning_content = self._renderer.stop_live_stream()
+            
+            # Check for text-based tool calls
+            tool_results = []
+            content = response_content or ""
+            
+            # write_file('path', 'content')
+            for match in re.finditer(r'write_file\s*\(\s*[\'"]([^\'"]+)[\'"]\s*,\s*[\'"]([\s\S]*?)[\'"]\s*\)', content):
+                path, file_content = match.groups()
+                self._renderer.print(f"[dim]> Writing: {path}[/dim]")
+                try:
+                    result = self._tools.execute("write_file", {"path": path, "content": file_content})
+                    tool_results.append(f"write_file({path}): {result}")
+                except Exception as e:
+                    tool_results.append(f"write_file error: {e}")
+            
+            # Single-arg tools
+            for tool_name, arg in re.findall(r'(list_directory|read_file|create_directory)\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)', content):
+                self._renderer.print(f"[dim]> {tool_name}({arg})[/dim]")
+                try:
+                    result = self._tools.execute(tool_name, {"path": arg})
+                    preview = result[:200] + "..." if len(result) > 200 else result
+                    tool_results.append(f"{tool_name}: {preview}")
+                except Exception as e:
+                    tool_results.append(f"{tool_name} error: {e}")
+            
+            # run_command
+            for cmd in re.findall(r'run_command\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)', content):
+                self._renderer.print(f"[dim]> Running: {cmd}[/dim]")
+                try:
+                    result = self._tools.execute("run_command", {"command": cmd})
+                    preview = result[:200] + "..." if len(result) > 200 else result
+                    tool_results.append(f"run_command: {preview}")
+                except Exception as e:
+                    tool_results.append(f"run_command error: {e}")
+            
+            if tool_results:
+                messages.append({"role": "assistant", "content": content})
+                messages.append({"role": "user", "content": "Tool results:\n" + "\n".join(tool_results) + "\n\nContinue."})
+                continue
+            
+            # No tool calls - done. Use reasoning as response if response is empty
+            final_content = response_content or reasoning_content
+            if final_content:
+                # Clean up any leftover think tags
+                final_content = re.sub(r'</think>?\s*$', '', final_content).strip()
+                if final_content:
+                    self._renderer.print_message(final_content, role="assistant")
+                    session.add_message("assistant", final_content)
+            break
     
     async def _get_response_with_tools(self, provider, context: list, session, max_iterations: int = 10) -> None:
         """Get response from LLM with tool calling support and streaming reasoning."""
