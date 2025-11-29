@@ -50,13 +50,6 @@ class CLI:
         self._renderer.print_welcome()
         self._ensure_session()
         
-        # Print initial model status
-        self._renderer.print_status(
-            provider=self._config.llm.provider,
-            model=self._config.llm.model
-        )
-        self._renderer.print()
-        
         # Print startup tips
         self._renderer.print("[dim]Tips:[/dim]")
         self._renderer.print("[dim]1. Ask questions, edit files, or run commands[/dim]")
@@ -120,7 +113,7 @@ class CLI:
                 self._renderer.print_markdown(result.message)
     
     def _get_prompt(self) -> str:
-        """Get the input prompt string."""
+        """Get the input prompt string with model info."""
         cwd = os.getcwd()
         # Show shortened path in prompt
         home = os.path.expanduser('~')
@@ -132,6 +125,18 @@ class CLI:
         parts = short_path.split('/')
         if len(parts) > 3:
             short_path = '.../' + '/'.join(parts[-2:])
+        
+        # Print model info above prompt
+        provider = self._config.llm.provider.capitalize()
+        model = self._config.llm.model
+        # Only show Free for OAuth providers
+        free_providers = ["qwen", "gemini", "ollama"]
+        if self._config.llm.provider in free_providers:
+            tier = " | [magenta]Free[/magenta]"
+        else:
+            tier = ""
+        self._renderer.print(f"[cyan]{provider}[/cyan] / [green]{model}[/green]{tier}")
+        
         return f"[{short_path}] > "
     
     def _ensure_session(self) -> None:
@@ -330,12 +335,8 @@ Be concise and helpful."""
             self._sessions.save_session(session)
             
             if self._config.ui.show_token_count:
-                self._renderer.print_status(
-                    provider=response.provider,
-                    model=response.model,
-                    tokens=(response.input_tokens, response.output_tokens),
-                    cost=response.cost if self._config.ui.show_cost else None
-                )
+                tokens = response.input_tokens + response.output_tokens
+                self._renderer.print(f"[dim]{tokens} tokens[/dim]")
                 
         finally:
             self._renderer.stop_spinner()
@@ -414,12 +415,8 @@ Be concise and helpful."""
                     self._sessions.save_session(session)
                     
                     if self._config.ui.show_token_count:
-                        self._renderer.print_status(
-                            provider=response.provider,
-                            model=response.model,
-                            tokens=(response.input_tokens, response.output_tokens),
-                            cost=response.cost if self._config.ui.show_cost else None
-                        )
+                        tokens = response.input_tokens + response.output_tokens
+                        self._renderer.print(f"[dim]{tokens} tokens[/dim]")
                 
                 break
                 

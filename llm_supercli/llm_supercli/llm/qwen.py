@@ -167,15 +167,14 @@ class QwenProvider(LLMProvider):
         if not self._credentials:
             return QWEN_DEFAULT_BASE_URL
         
-        base_url = self._credentials.get("resource_url", QWEN_DEFAULT_BASE_URL)
+        base_url = self._credentials.get("resource_url", "")
+        if not base_url:
+            return QWEN_DEFAULT_BASE_URL
         
         if not base_url.startswith("http://") and not base_url.startswith("https://"):
             base_url = f"https://{base_url}"
         
-        if not base_url.endswith("/v1"):
-            base_url = f"{base_url}/v1"
-        
-        return base_url
+        return base_url if base_url.endswith("/v1") else f"{base_url}/v1"
     
     async def chat(
         self,
@@ -193,6 +192,10 @@ class QwenProvider(LLMProvider):
         temperature = temperature if temperature is not None else 0
         max_tokens = max_tokens or self._config.max_tokens
         
+        # Filter out unsupported params (tools not supported by Qwen OAuth API)
+        kwargs.pop("tools", None)
+        kwargs.pop("tool_choice", None)
+        
         payload = {
             "model": model,
             "messages": messages,
@@ -208,7 +211,10 @@ class QwenProvider(LLMProvider):
                 f"{base_url}/chat/completions",
                 headers={
                     "Authorization": f"Bearer {access_token}",
-                    "Content-Type": "application/json"
+                    "Content-Type": "application/json",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "Origin": "https://chat.qwen.ai",
+                    "Referer": "https://chat.qwen.ai/"
                 },
                 json=payload,
                 timeout=120.0
@@ -221,18 +227,39 @@ class QwenProvider(LLMProvider):
                     f"{base_url}/chat/completions",
                     headers={
                         "Authorization": f"Bearer {self._credentials['access_token']}",
-                        "Content-Type": "application/json"
+                        "Content-Type": "application/json",
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                        "Origin": "https://chat.qwen.ai",
+                        "Referer": "https://chat.qwen.ai/"
                     },
                     json=payload,
                     timeout=120.0
                 )
             
-            response.raise_for_status()
-            data = response.json()
+            # Handle errors before raise_for_status
+            if not response.is_success:
+                text = response.text.strip()
+                raise ValueError(f"Qwen API error ({response.status_code}): {text[:500]}")
+            
+            # Handle empty response
+            text = response.text.strip()
+            if not text:
+                raise ValueError("Empty response from Qwen API")
+            
+            try:
+                data = response.json()
+            except json.JSONDecodeError as e:
+                raise ValueError(f"Invalid JSON from Qwen API: {text[:200]}")
+            
+            if "error" in data:
+                raise ValueError(f"Qwen API error: {data['error']}")
         
         latency_ms = (time.perf_counter() - start_time) * 1000
         
-        message = data["choices"][0]["message"]
+        if not data.get("choices"):
+            raise ValueError(f"No choices in Qwen response: {data}")
+        
+        message = data["choices"][0].get("message", {})
         content = message.get("content") or ""
         usage = data.get("usage", {})
         input_tokens = usage.get("prompt_tokens", 0)
@@ -282,7 +309,10 @@ class QwenProvider(LLMProvider):
                 f"{base_url}/chat/completions",
                 headers={
                     "Authorization": f"Bearer {access_token}",
-                    "Content-Type": "application/json"
+                    "Content-Type": "application/json",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "Origin": "https://chat.qwen.ai",
+                    "Referer": "https://chat.qwen.ai/"
                 },
                 json=payload,
                 timeout=180.0
