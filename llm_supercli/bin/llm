@@ -1,13 +1,51 @@
 #!/usr/bin/env node
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 
 const args = process.argv.slice(2);
-const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+const isWin = process.platform === 'win32';
+const pythonCmd = isWin ? 'python' : 'python3';
+const pkgDir = path.join(__dirname, '..');
+const venvDir = path.join(pkgDir, '.venv');
+const venvPython = isWin 
+  ? path.join(venvDir, 'Scripts', 'python.exe')
+  : path.join(venvDir, 'bin', 'python');
+const venvPip = isWin
+  ? path.join(venvDir, 'Scripts', 'pip.exe')
+  : path.join(venvDir, 'bin', 'pip');
 
-const child = spawn(pythonCmd, ['-m', 'llm_supercli', ...args], {
+function setupVenv() {
+  console.log('Setting up isolated environment (first run)...');
+  try {
+    // Create venv
+    if (!fs.existsSync(venvDir)) {
+      console.log('Creating virtual environment...');
+      execSync(`${pythonCmd} -m venv "${venvDir}"`, { stdio: 'inherit' });
+    }
+    // Install deps in venv
+    console.log('Installing dependencies...');
+    execSync(`"${venvPip}" install rich httpx click prompt_toolkit pyfiglet --quiet`, { stdio: 'inherit' });
+    console.log('Done!\n');
+  } catch (err) {
+    console.error('Setup failed. Make sure Python 3.10+ is installed.');
+    console.error('Or run manually: pip install rich httpx click prompt_toolkit pyfiglet');
+    process.exit(1);
+  }
+}
+
+// Setup venv if not exists
+if (!fs.existsSync(venvPython)) {
+  setupVenv();
+}
+
+// Set PYTHONPATH to include package dir
+const env = { ...process.env };
+env.PYTHONPATH = pkgDir + (env.PYTHONPATH ? path.delimiter + env.PYTHONPATH : '');
+
+const child = spawn(venvPython, ['-m', 'llm_supercli', ...args], {
   stdio: 'inherit',
-  cwd: path.join(__dirname, '..')
+  env: env
 });
 
 child.on('close', (code) => process.exit(code));

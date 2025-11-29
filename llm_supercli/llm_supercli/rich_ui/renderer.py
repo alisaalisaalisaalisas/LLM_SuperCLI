@@ -140,6 +140,25 @@ class RichRenderer:
         )
         self._console.print(panel)
     
+    def print_reasoning(self, content: str) -> None:
+        """
+        Print reasoning/thinking content in a styled box.
+        
+        Args:
+            content: Reasoning content to display
+        """
+        if not content.strip():
+            return
+            
+        panel = Panel(
+            Text(content, style="dim italic"),
+            title="[yellow]💭 Reasoning[/yellow]",
+            title_align="left",
+            border_style="yellow",
+            padding=(0, 1)
+        )
+        self._console.print(panel)
+    
     def print_markdown(self, content: str) -> None:
         """
         Print markdown content.
@@ -371,6 +390,73 @@ class RichRenderer:
         if self._live:
             self._live.stop()
             self._live = None
+    
+    def start_live_reasoning(self) -> None:
+        """Start live display for streaming reasoning."""
+        self._reasoning_buffer = ""
+        self._response_buffer = ""
+        self._in_thinking = False
+        self._live = Live(
+            Text("", style="dim italic"),
+            console=self._console,
+            refresh_per_second=10,
+            vertical_overflow="visible"
+        )
+        self._live.start()
+    
+    def update_live_stream(self, chunk: str) -> None:
+        """
+        Update live stream with new chunk, handling <think> tags.
+        
+        Args:
+            chunk: New text chunk
+        """
+        if not self._live:
+            return
+        
+        # Process chunk character by character for tag detection
+        for char in chunk:
+            if self._in_thinking:
+                if self._reasoning_buffer.endswith("</think"):
+                    if char == ">":
+                        # End of thinking block
+                        self._reasoning_buffer = self._reasoning_buffer[:-7]  # Remove </think
+                        self._in_thinking = False
+                        continue
+                self._reasoning_buffer += char
+            else:
+                if self._response_buffer.endswith("<think"):
+                    if char == ">":
+                        # Start of thinking block
+                        self._response_buffer = self._response_buffer[:-6]  # Remove <think
+                        self._in_thinking = True
+                        continue
+                self._response_buffer += char
+        
+        # Update display
+        if self._in_thinking and self._reasoning_buffer:
+            panel = Panel(
+                Text(self._reasoning_buffer.strip(), style="dim italic"),
+                title="[yellow]💭 Reasoning[/yellow]",
+                border_style="yellow",
+                padding=(0, 1)
+            )
+            self._live.update(panel)
+    
+    def stop_live_stream(self) -> tuple:
+        """
+        Stop live stream and return buffers.
+        
+        Returns:
+            Tuple of (response_content, reasoning_content)
+        """
+        if self._live:
+            self._live.stop()
+            self._live = None
+        
+        reasoning = getattr(self, '_reasoning_buffer', '')
+        response = getattr(self, '_response_buffer', '')
+        return response.strip(), reasoning.strip()
     
     def stream_response(self, chunks: Generator[str, None, None]) -> str:
         """

@@ -5,8 +5,9 @@ Handles the interactive command loop and message processing.
 import asyncio
 import json
 import os
+import re
 import sys
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 
 from .config import get_config
 from .rich_ui import RichRenderer, InputHandler, get_theme_manager
@@ -43,6 +44,26 @@ class CLI:
         self._current_mode: Optional[str] = None
         self._input = PromptInput()
         self._input.set_commands(self._commands.list_commands())
+    
+    def _parse_thinking(self, content: str) -> Tuple[str, str]:
+        """
+        Parse <think></think> tags from content.
+        
+        Returns:
+            Tuple of (main_content, thinking_content)
+        """
+        thinking = ""
+        main_content = content
+        
+        # Extract thinking blocks
+        think_pattern = re.compile(r'<think>(.*?)</think>', re.DOTALL)
+        matches = think_pattern.findall(content)
+        
+        if matches:
+            thinking = "\n".join(matches)
+            main_content = think_pattern.sub('', content).strip()
+        
+        return main_content, thinking
     
     def run(self) -> None:
         """Run the CLI main loop."""
@@ -251,13 +272,32 @@ class CLI:
         """Build message context with system prompt including current directory info."""
         cwd = os.getcwd()
         
-        # Enhanced system prompt with tool awareness
-        system_content = f"""You are a helpful AI assistant running in a command-line interface.
-You have access to the user's file system and can help with file operations.
+        # Enhanced system prompt - KiloCode style
+        system_content = f"""You are an expert software engineer assistant with extensive capabilities.
 
-Current working directory: {cwd}
+## Environment
+- Current working directory: {cwd}
+- Operating system: {os.name}
 
-You have the following tools available:
+## Your Capabilities
+
+### Code Development & Analysis
+- Write, modify, and refactor code in any programming language
+- Analyze existing codebases and suggest improvements
+- Debug and troubleshoot technical issues
+- Explain complex code and algorithms
+
+### File & Project Management
+- Read, edit, and create files
+- Analyze project structure and dependencies
+- Search across codebases using patterns
+
+### Development Environment
+- Execute shell commands and scripts
+- Work with version control (git)
+- Manage project workflows
+
+## Available Tools
 - get_current_directory: Get the current working directory
 - list_directory: List files and folders in a directory
 - read_file: Read the contents of a file
@@ -265,9 +305,21 @@ You have the following tools available:
 - create_directory: Create a new directory
 - run_command: Run a shell command
 
-When the user asks about files, projects, or needs file operations, USE THE TOOLS to help them.
-Always use tools when you need to see file contents or directory structure.
-Be concise and helpful."""
+## Guidelines
+1. When asked about files or code, USE TOOLS to examine them first
+2. Provide detailed, technical responses with code examples when relevant
+3. Think through complex problems step by step
+4. Be proactive - suggest improvements and best practices
+5. Format responses with markdown for readability
+
+## Response Format
+For complex tasks, use this format:
+<think>
+Your reasoning and thought process here (brief, 1-3 sentences)
+</think>
+Your actual response to the user here (this is required - never leave empty)
+
+IMPORTANT: Always include a response AFTER the </think> tag. The thinking is optional but the response is mandatory."""
 
         messages = [{"role": "system", "content": system_content}]
         
@@ -280,13 +332,13 @@ Be concise and helpful."""
         return messages
     
     async def _stream_response(self, provider, context: list, session) -> None:
-        """Stream response from LLM."""
-        full_response = ""
-        
-        live = self._renderer.start_spinner("Thinking...")
+        """Stream response from LLM with live reasoning display."""
+        self._renderer.start_spinner("Thinking...")
         
         try:
             first_chunk = True
+            self._renderer.start_live_reasoning()
+            
             async for chunk in provider.chat_stream(
                 messages=context,
                 model=self._config.llm.model,
@@ -297,18 +349,29 @@ Be concise and helpful."""
                     self._renderer.stop_spinner()
                     first_chunk = False
                 
-                full_response += chunk.content
-                self._renderer.print(chunk.content, end="")
+                # Update live display with chunk
+                self._renderer.update_live_stream(chunk.content)
             
-            self._renderer.print()  # Newline after streaming
+            # Stop live stream and get final content
+            response_content, reasoning_content = self._renderer.stop_live_stream()
             
+            # Display final reasoning box if any
+            if reasoning_content:
+                self._renderer.print_reasoning(reasoning_content)
+            
+            # Display response
+            if response_content:
+                self._renderer.print_message(response_content, role="assistant")
+            
+            # Save to session
+            full_response = response_content
+            if full_response:
+                tokens = len(full_response) // 4
+                session.add_message("assistant", full_response, tokens=tokens)
+                self._sessions.save_session(session)
+                
         finally:
             self._renderer.stop_spinner()
-        
-        if full_response:
-            tokens = len(full_response) // 4
-            session.add_message("assistant", full_response, tokens=tokens)
-            self._sessions.save_session(session)
     
     async def _get_response(self, provider, context: list, session) -> None:
         """Get complete response from LLM."""
@@ -324,7 +387,14 @@ Be concise and helpful."""
             
             self._renderer.stop_spinner()
             
-            self._renderer.print_message(response.content, role="assistant")
+            # Parse and display thinking/reasoning separately
+            main_content, thinking = self._parse_thinking(response.content)
+            
+            if thinking:
+                self._renderer.print_reasoning(thinking)
+            
+            if main_content:
+                self._renderer.print_message(main_content, role="assistant")
             
             session.add_message(
                 "assistant",
@@ -342,7 +412,7 @@ Be concise and helpful."""
             self._renderer.stop_spinner()
     
     async def _get_response_with_tools(self, provider, context: list, session, max_iterations: int = 10) -> None:
-        """Get response from LLM with tool calling support."""
+        """Get response from LLM with tool calling support and streaming reasoning."""
         messages = context.copy()
         iteration = 0
         
@@ -351,6 +421,7 @@ Be concise and helpful."""
             self._renderer.start_spinner("Thinking...")
             
             try:
+                # First check for tool calls with non-streaming request
                 response = await provider.chat(
                     messages=messages,
                     model=self._config.llm.model,
@@ -368,7 +439,6 @@ Be concise and helpful."""
                 
                 # If there are tool calls, execute them
                 if tool_calls:
-                    # Add assistant message with tool calls to context
                     messages.append(message)
                     
                     for tool_call in tool_calls:
@@ -381,42 +451,45 @@ Be concise and helpful."""
                         except json.JSONDecodeError:
                             args = {}
                         
-                        # Show tool execution
                         self._renderer.print(f"[dim]> Using tool: {tool_name}({args})[/dim]")
-                        
-                        # Execute the tool
                         result = self._tools.execute(tool_name, args)
-                        
-                        # Show result preview
                         preview = result[:200] + "..." if len(result) > 200 else result
                         self._renderer.print(f"[dim]> Result: {preview}[/dim]\n")
                         
-                        # Add tool result to messages
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tool_id,
                             "content": result
                         })
-                    
-                    # Continue loop to get next response
                     continue
                 
-                # No tool calls - this is the final response
-                content = response.content or ""
-                if content:
-                    self._renderer.print_message(content, role="assistant")
-                    
-                    session.add_message(
-                        "assistant",
-                        content,
-                        tokens=response.total_tokens,
-                        cost=response.cost
-                    )
+                # No tool calls - use streaming for real-time reasoning display
+                self._renderer.start_live_reasoning()
+                
+                try:
+                    async for chunk in provider.chat_stream(
+                        messages=messages,
+                        model=self._config.llm.model,
+                        temperature=self._config.llm.temperature,
+                        max_tokens=self._config.llm.max_tokens
+                    ):
+                        self._renderer.update_live_stream(chunk.content)
+                finally:
+                    response_content, reasoning_content = self._renderer.stop_live_stream()
+                
+                # If model put response in thinking, use reasoning as response
+                if not response_content.strip() and reasoning_content.strip():
+                    response_content = reasoning_content
+                    reasoning_content = ""
+                
+                # Display response (reasoning was already shown during streaming)
+                if response_content:
+                    self._renderer.print_message(response_content, role="assistant")
+                    session.add_message("assistant", response_content, tokens=len(response_content)//4)
                     self._sessions.save_session(session)
                     
                     if self._config.ui.show_token_count:
-                        tokens = response.input_tokens + response.output_tokens
-                        self._renderer.print(f"[dim]{tokens} tokens[/dim]")
+                        self._renderer.print(f"[dim]{len(response_content)//4} tokens[/dim]")
                 
                 break
                 

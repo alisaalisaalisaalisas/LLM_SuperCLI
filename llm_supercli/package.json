@@ -1,8 +1,15 @@
 {
   "name": "llm-supercli",
-  "version": "1.0.12",
+  "version": "1.0.16",
   "description": "A powerful multi-provider LLM command line interface",
-  "readme": "README.md",
+  "files": [
+    "bin/",
+    "llm_supercli/",
+    "scripts/",
+    "README.md",
+    "pyproject.toml",
+    "requirements.txt"
+  ],
   "bin": {
     "llm": "./bin/llm",
     "llm-supercli": "./bin/llm-supercli"
