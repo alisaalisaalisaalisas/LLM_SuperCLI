@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "llm-supercli"
-version = "1.0.0"
+version = "1.0.5"
 description = "A powerful multi-provider LLM command line interface"
 readme = "README.md"
 license = {text = "MIT"}
