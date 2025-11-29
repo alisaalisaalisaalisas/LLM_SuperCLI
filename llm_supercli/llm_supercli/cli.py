@@ -302,12 +302,18 @@ class CLI:
 - Manage project workflows
 
 ## Available Tools
-- get_current_directory: Get the current working directory
-- list_directory: List files and folders in a directory
-- read_file: Read the contents of a file
-- write_file: Write content to a file
-- create_directory: Create a new directory
-- run_command: Run a shell command
+- list_directory('path') - List files and folders
+- read_file('path') - Read file contents  
+- write_file('path', 'content') - Create/write a file
+- create_directory('path') - Create a folder
+- run_command('command') - Run shell command
+
+## IMPORTANT: To use tools, write them exactly like this:
+write_file('landing.html', '<html>...</html>')
+list_directory('.')
+read_file('main.py')
+
+The system will execute these and show you the results.
 
 ## Guidelines
 1. When asked about files or code, USE TOOLS to examine them first
@@ -419,7 +425,7 @@ IMPORTANT: Always include a response AFTER the </think> tag. The thinking is opt
         """Streaming response with text-based tool parsing for providers without native tool support."""
         import re
         messages = context.copy()
-        max_iterations = 5
+        max_iterations = 3
         
         for _ in range(max_iterations):
             self._renderer.start_live_reasoning()
@@ -470,17 +476,21 @@ IMPORTANT: Always include a response AFTER the </think> tag. The thinking is opt
             
             if tool_results:
                 messages.append({"role": "assistant", "content": content})
-                messages.append({"role": "user", "content": "Tool results:\n" + "\n".join(tool_results) + "\n\nContinue."})
+                messages.append({"role": "user", "content": "Tool results:\n" + "\n".join(tool_results) + "\n\nNow give a brief summary of what was done. Do NOT call more tools."})
                 continue
             
-            # No tool calls - done. Use reasoning as response if response is empty
-            final_content = response_content or reasoning_content
+            # No tool calls - done
+            # Use response_content, fall back to reasoning only if response is empty
+            final_content = response_content.strip() if response_content else ""
+            if not final_content and reasoning_content:
+                final_content = reasoning_content.strip()
+            
+            # Clean any remaining think tags
+            final_content = re.sub(r'</?think>?', '', final_content).strip()
+            
             if final_content:
-                # Clean up any leftover think tags
-                final_content = re.sub(r'</think>?\s*$', '', final_content).strip()
-                if final_content:
-                    self._renderer.print_message(final_content, role="assistant")
-                    session.add_message("assistant", final_content)
+                self._renderer.print_message(final_content, role="assistant")
+                session.add_message("assistant", final_content)
             break
     
     async def _get_response_with_tools(self, provider, context: list, session, max_iterations: int = 10) -> None:

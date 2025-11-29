@@ -396,8 +396,9 @@ class RichRenderer:
         self._reasoning_buffer = ""
         self._response_buffer = ""
         self._in_thinking = False
+        self._first_chunk = True
         self._live = Live(
-            Text("", style="dim italic"),
+            Text("⠋ Thinking...", style="dim italic"),
             console=self._console,
             refresh_per_second=10,
             vertical_overflow="visible"
@@ -405,36 +406,24 @@ class RichRenderer:
         self._live.start()
     
     def update_live_stream(self, chunk: str) -> None:
-        """
-        Update live stream with new chunk, handling <think> tags.
-        
-        Args:
-            chunk: New text chunk
-        """
+        """Update live stream with new chunk, handling <think> tags."""
         if not self._live:
             return
         
-        # Process chunk character by character for tag detection
         for char in chunk:
             if self._in_thinking:
-                if self._reasoning_buffer.endswith("</think"):
-                    if char == ">":
-                        # End of thinking block
-                        self._reasoning_buffer = self._reasoning_buffer[:-7]  # Remove </think
-                        self._in_thinking = False
-                        continue
                 self._reasoning_buffer += char
+                if self._reasoning_buffer.endswith("</think>"):
+                    self._reasoning_buffer = self._reasoning_buffer[:-8]
+                    self._in_thinking = False
             else:
-                if self._response_buffer.endswith("<think"):
-                    if char == ">":
-                        # Start of thinking block
-                        self._response_buffer = self._response_buffer[:-6]  # Remove <think
-                        self._in_thinking = True
-                        continue
                 self._response_buffer += char
+                if self._response_buffer.endswith("<think>"):
+                    self._response_buffer = self._response_buffer[:-7]
+                    self._in_thinking = True
         
-        # Update display
-        if self._in_thinking and self._reasoning_buffer:
+        # Show reasoning while thinking
+        if self._reasoning_buffer:
             panel = Panel(
                 Text(self._reasoning_buffer.strip(), style="dim italic"),
                 title="[yellow]💭 Reasoning[/yellow]",

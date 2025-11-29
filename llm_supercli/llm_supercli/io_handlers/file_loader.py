@@ -111,6 +111,9 @@ class FileLoader:
                 )
             
             if not file_path.is_file():
+                # If it's a directory, list its contents
+                if file_path.is_dir():
+                    return self._load_directory(path, file_path)
                 return LoadedFile(
                     path=path,
                     content="",
@@ -182,6 +185,28 @@ class FileLoader:
                 is_binary=False,
                 error=str(e)
             )
+    
+    def _load_directory(self, path: str, dir_path: Path) -> LoadedFile:
+        """Load directory listing."""
+        try:
+            items = sorted(dir_path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
+            lines = [f"# Directory: {path}\n"]
+            for item in items[:50]:  # Limit to 50 items
+                prefix = "📁 " if item.is_dir() else "📄 "
+                lines.append(f"{prefix}{item.name}")
+            if len(list(dir_path.iterdir())) > 50:
+                lines.append(f"... and {len(list(dir_path.iterdir())) - 50} more items")
+            content = "\n".join(lines)
+            return LoadedFile(
+                path=path,
+                content=content,
+                size=len(content),
+                mime_type="text/plain",
+                encoding="utf-8",
+                is_binary=False
+            )
+        except Exception as e:
+            return LoadedFile(path=path, content="", size=0, mime_type="", encoding="", is_binary=False, error=str(e))
     
     def load_multiple(self, paths: List[str]) -> List[LoadedFile]:
         """
