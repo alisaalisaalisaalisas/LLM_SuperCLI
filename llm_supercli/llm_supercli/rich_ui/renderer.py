@@ -400,7 +400,7 @@ class RichRenderer:
         self._live = Live(
             Text("⠋ Thinking...", style="dim italic"),
             console=self._console,
-            refresh_per_second=10,
+            refresh_per_second=15,  # Faster refresh for smoother streaming
             vertical_overflow="visible"
         )
         self._live.start()
@@ -422,12 +422,25 @@ class RichRenderer:
                     self._response_buffer = self._response_buffer[:-7]
                     self._in_thinking = True
         
-        # Show reasoning while thinking
-        if self._reasoning_buffer:
+        # Update display based on what content we have
+        if self._in_thinking and self._reasoning_buffer:
+            # Show reasoning in yellow panel while thinking
             panel = Panel(
                 Text(self._reasoning_buffer.strip(), style="dim italic"),
                 title="[yellow]💭 Reasoning[/yellow]",
                 border_style="yellow",
+                padding=(0, 1)
+            )
+            self._live.update(panel)
+        elif self._response_buffer:
+            # Show response in assistant panel while streaming (consistent with final display)
+            from rich.markdown import Markdown
+            icon = self._ascii_art.get_icon("robot")
+            panel = Panel(
+                Markdown(self._response_buffer.strip()),
+                title=f"[{self._theme_manager.get_style('assistant_message')}]{icon} Assistant[/{self._theme_manager.get_style('assistant_message')}]",
+                title_align="left",
+                border_style=self._theme_manager.get_color("primary"),
                 padding=(0, 1)
             )
             self._live.update(panel)
@@ -445,6 +458,38 @@ class RichRenderer:
         
         reasoning = getattr(self, '_reasoning_buffer', '')
         response = getattr(self, '_response_buffer', '')
+        
+        # If reasoning contains what looks like the actual response (markdown headers,
+        # structured content), move it to response and keep only the thinking part
+        if reasoning and not response:
+            # Look for markers that indicate actual response content
+            import re
+            # Find where the actual response starts (markdown headers, "Based on", etc.)
+            response_markers = [
+                r'^#{1,3}\s+',  # Markdown headers
+                r'^Based on',   # Common response starter
+                r'^\*\*[A-Z]',  # Bold headers
+                r'^Here\'s',    # Common response starter
+            ]
+            
+            lines = reasoning.split('\n')
+            response_start_idx = None
+            
+            for i, line in enumerate(lines):
+                for marker in response_markers:
+                    if re.match(marker, line.strip()):
+                        response_start_idx = i
+                        break
+                if response_start_idx is not None:
+                    break
+            
+            if response_start_idx is not None:
+                # Split: reasoning is before, response is from marker onwards
+                reasoning_lines = lines[:response_start_idx]
+                response_lines = lines[response_start_idx:]
+                reasoning = '\n'.join(reasoning_lines).strip()
+                response = '\n'.join(response_lines).strip()
+        
         return response.strip(), reasoning.strip()
     
     def stream_response(self, chunks: Generator[str, None, None]) -> str:

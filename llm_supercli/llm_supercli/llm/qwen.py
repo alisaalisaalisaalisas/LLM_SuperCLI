@@ -295,6 +295,9 @@ class QwenProvider(LLMProvider):
         **kwargs: Any
     ) -> AsyncGenerator[StreamChunk, None]:
         """Send a streaming chat completion request to Qwen."""
+        # Reset reasoning state for new stream
+        self._in_reasoning = False
+        
         access_token = await self._ensure_authenticated()
         base_url = self._get_base_url()
         
@@ -393,18 +396,32 @@ class QwenProvider(LLMProvider):
                                                 model=data.get("model", model)
                                             )
                                 
-                                # Handle reasoning_content - wrap in <think> tags for renderer
+                                # Handle reasoning_content - yield with think tags
+                                # Note: We yield opening/closing tags separately to work with
+                                # the renderer's character-by-character state machine
                                 if delta.get("reasoning_content"):
                                     has_content = True
                                     reasoning = delta["reasoning_content"]
-                                    # Wrap in think tags so renderer shows it as reasoning
+                                    # Only add opening tag if not already in thinking mode
+                                    if not getattr(self, '_in_reasoning', False):
+                                        yield StreamChunk(content="<think>", finish_reason=None, model=data.get("model", model))
+                                        self._in_reasoning = True
                                     yield StreamChunk(
-                                        content=f"<think>{reasoning}</think>",
+                                        content=reasoning,
                                         finish_reason=choice.get("finish_reason"),
                                         model=data.get("model", model)
                                     )
+                                elif getattr(self, '_in_reasoning', False):
+                                    # Close thinking block when we get non-reasoning content
+                                    yield StreamChunk(content="</think>", finish_reason=None, model=data.get("model", model))
+                                    self._in_reasoning = False
                         except json.JSONDecodeError:
                             continue
+                    
+                    # Close any open thinking block at end of stream
+                    if getattr(self, '_in_reasoning', False):
+                        yield StreamChunk(content="</think>", finish_reason=None, model=model)
+                        self._in_reasoning = False
                     
                     # If no content was received, yield empty to avoid hanging
                     if not has_content:

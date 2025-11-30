@@ -509,14 +509,17 @@ class CLI:
         """
         import re
         messages = context.copy()
-        max_iterations = 3
+        max_iterations = 15  # Increased to allow complex multi-step tasks
         
         # Initialize the tool parser with registered format parsers
         tool_parser = ToolParser()
         tool_parser.register(PythonStyleParser())
         tool_parser.register(XMLStyleParser())
         
-        for _ in range(max_iterations):
+        # Track executed tool calls to prevent duplicates
+        executed_calls: set[str] = set()
+        
+        for iteration in range(max_iterations):
             self._renderer.start_live_reasoning()
             try:
                 async for chunk in provider.chat_stream(
@@ -533,15 +536,23 @@ class CLI:
             content = response_content or ""
             parsed_calls = tool_parser.parse(content)
             
+            # Filter out duplicate tool calls (same tool + same args)
+            unique_calls = []
+            for call in parsed_calls:
+                call_key = f"{call.name}:{str(sorted(call.arguments.items()))}"
+                if call_key not in executed_calls:
+                    unique_calls.append(call)
+                    executed_calls.add(call_key)
+            
             # Execute parsed tool calls with consistent visual feedback
             tool_results = []
-            num_calls = len(parsed_calls)
+            num_calls = len(unique_calls)
             
             # Add visual header if multiple tool calls
             if num_calls > 1:
                 self._renderer.print(f"[dim]─── Executing {num_calls} tool calls ───[/dim]")
             
-            for i, call in enumerate(parsed_calls):
+            for i, call in enumerate(unique_calls):
                 result_str = self._execute_tool_call(call)
                 tool_results.append(result_str)
                 
@@ -549,29 +560,33 @@ class CLI:
                 if num_calls > 1 and i < num_calls - 1:
                     self._renderer.print("[dim]───[/dim]")
             
-            if tool_results:
+            # Filter out invalid tool calls (tools that returned errors)
+            valid_results = [r for r in tool_results if "Error: Unknown tool" not in r]
+            
+            if valid_results:
                 messages.append({"role": "assistant", "content": content})
                 messages.append({
                     "role": "user",
-                    "content": "Tool results:\n" + "\n".join(tool_results) + "\n\nNow give a brief summary of what was done. Do NOT call more tools."
+                    "content": "Tool results:\n" + "\n".join(valid_results) + "\n\nContinue with your analysis. You may call more tools if needed to complete the task."
                 })
                 continue
             
-            # No tool calls - done
-            # Display reasoning if present
-            if reasoning_content and reasoning_content.strip():
-                self._renderer.print_reasoning(reasoning_content.strip())
-            
-            # Use response_content, fall back to reasoning only if response is empty
+            # No valid tool calls - check if we have a response to show
+            # Clean any remaining think tags from response
             final_content = response_content.strip() if response_content else ""
-            if not final_content and reasoning_content:
-                final_content = reasoning_content.strip()
-            
-            # Clean any remaining think tags
             final_content = re.sub(r'</?think>?', '', final_content).strip()
             
+            # If response is empty but we have reasoning, use reasoning as the response
+            # (Qwen sometimes puts the actual response in reasoning_content)
+            if not final_content and reasoning_content:
+                final_content = reasoning_content.strip()
+                final_content = re.sub(r'</?think>?', '', final_content).strip()
+            
+            # NOTE: The response was already shown during streaming in the Live panel.
+            # We just need to save it to the session, not display it again.
+            
             if final_content:
-                self._renderer.print_message(final_content, role="assistant")
+                # Don't print again - it was already shown during streaming
                 session.add_message("assistant", final_content)
             break
     
@@ -591,6 +606,18 @@ class CLI:
         """
         tool_name = call.name
         arguments = call.arguments
+        
+        # Valid tool names - skip unknown tools silently to avoid noise
+        valid_tools = {
+            "read_file", "write_file", "list_directory", 
+            "create_directory", "run_command", "get_current_directory"
+        }
+        
+        # Skip invalid/hallucinated tool names
+        if tool_name not in valid_tools:
+            self._renderer.print(f"[dim]🔧 {tool_name}[/dim]")
+            self._renderer.print(f"[red]   ✗ Error: Unknown tool '{tool_name}'[/red]")
+            return f"Error: Unknown tool '{tool_name}'"
         
         # Tool icons for consistent visual feedback
         tool_icons = {
@@ -612,6 +639,11 @@ class CLI:
         
         try:
             result = self._tools.execute(tool_name, normalized_args)
+            
+            # Check if the tool executor returned an error
+            if result.startswith("Error:"):
+                self._renderer.print(f"[red]   ✗ {result}[/red]")
+                return f"{tool_name}: {result}"
             
             # Display success with result preview
             preview = self._truncate_result(result, max_length=150)
