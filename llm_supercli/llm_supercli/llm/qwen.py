@@ -114,13 +114,19 @@ class QwenProvider(LLMProvider):
             "client_id": QWEN_OAUTH_CLIENT_ID
         }
         
+        # Browser-like headers to avoid WAF blocking
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Origin": QWEN_OAUTH_BASE_URL,
+            "Referer": f"{QWEN_OAUTH_BASE_URL}/",
+        }
+        
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 QWEN_OAUTH_TOKEN_ENDPOINT,
-                headers={
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "Accept": "application/json"
-                },
+                headers=headers,
                 content=urlencode(body_data),
                 timeout=30.0
             )
@@ -158,7 +164,10 @@ class QwenProvider(LLMProvider):
             await self._load_credentials()
         
         if not self._is_token_valid():
-            await self._refresh_access_token()
+            try:
+                await self._refresh_access_token()
+            except Exception as e:
+                raise ValueError(f"Failed to refresh Qwen token: {e}. Try running '/login qwen' or the official 'qwen' CLI to refresh.")
         
         return self._credentials["access_token"]
     
@@ -304,75 +313,106 @@ class QwenProvider(LLMProvider):
         }
         
         async with httpx.AsyncClient() as client:
-            async with client.stream(
-                "POST",
-                f"{base_url}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Content-Type": "application/json",
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                    "Origin": "https://chat.qwen.ai",
-                    "Referer": "https://chat.qwen.ai/"
-                },
-                json=payload,
-                timeout=180.0
-            ) as response:
-                response.raise_for_status()
-                
-                full_content = ""
-                
-                async for line in response.aiter_lines():
-                    if not line or not line.startswith("data: "):
-                        continue
+            try:
+                async with client.stream(
+                    "POST",
+                    f"{base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Content-Type": "application/json",
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                        "Origin": "https://chat.qwen.ai",
+                        "Referer": "https://chat.qwen.ai/"
+                    },
+                    json=payload,
+                    timeout=180.0
+                ) as response:
+                    if not response.is_success:
+                        # Try to read error body
+                        error_body = ""
+                        async for chunk in response.aiter_bytes():
+                            error_body += chunk.decode("utf-8", errors="ignore")
+                        raise ValueError(f"Qwen API error ({response.status_code}): {error_body[:500]}")
                     
-                    data_str = line[6:]
-                    if data_str == "[DONE]":
-                        break
+                    full_content = ""
+                    has_content = False
                     
-                    try:
-                        data = json.loads(data_str)
+                    async for line in response.aiter_lines():
+                        if not line:
+                            continue
                         
-                        if "choices" in data and data["choices"]:
-                            choice = data["choices"][0]
-                            delta = choice.get("delta", {})
-                            content = delta.get("content", "")
+                        # Handle SSE format
+                        if not line.startswith("data: "):
+                            # Check for error responses
+                            if line.startswith("{"):
+                                try:
+                                    error_data = json.loads(line)
+                                    if "error" in error_data:
+                                        raise ValueError(f"Qwen API error: {error_data['error']}")
+                                except json.JSONDecodeError:
+                                    pass
+                            continue
+                        
+                        data_str = line[6:].strip()
+                        if not data_str or data_str == "[DONE]":
+                            break
+                        
+                        try:
+                            data = json.loads(data_str)
                             
-                            if content:
-                                # Handle incremental vs full content
-                                new_text = content
-                                if new_text.startswith(full_content):
-                                    new_text = new_text[len(full_content):]
-                                full_content = content
+                            if "choices" in data and data["choices"]:
+                                choice = data["choices"][0]
+                                delta = choice.get("delta", {})
+                                content = delta.get("content", "")
                                 
-                                if new_text:
-                                    # Check for thinking blocks
-                                    if "<think>" in new_text or "</think>" in new_text:
-                                        # Parse thinking blocks
-                                        import re
-                                        parts = re.split(r'</?think>', new_text)
-                                        for i, part in enumerate(parts):
-                                            if part:
-                                                yield StreamChunk(
-                                                    content=part,
-                                                    finish_reason=choice.get("finish_reason"),
-                                                    model=data.get("model", model)
-                                                )
-                                    else:
-                                        yield StreamChunk(
-                                            content=new_text,
-                                            finish_reason=choice.get("finish_reason"),
-                                            model=data.get("model", model)
-                                        )
-                            
-                            # Handle reasoning_content
-                            if delta.get("reasoning_content"):
-                                yield StreamChunk(
-                                    content=delta["reasoning_content"],
-                                    finish_reason=choice.get("finish_reason"),
-                                    model=data.get("model", model)
-                                )
-                    except json.JSONDecodeError:
-                        continue
+                                if content:
+                                    # Handle incremental vs full content
+                                    new_text = content
+                                    if new_text.startswith(full_content):
+                                        new_text = new_text[len(full_content):]
+                                    full_content = content
+                                    
+                                    if new_text:
+                                        has_content = True
+                                        # Check for thinking blocks
+                                        if "<think>" in new_text or "</think>" in new_text:
+                                            # Parse thinking blocks
+                                            import re
+                                            parts = re.split(r'</?think>', new_text)
+                                            for i, part in enumerate(parts):
+                                                if part:
+                                                    yield StreamChunk(
+                                                        content=part,
+                                                        finish_reason=choice.get("finish_reason"),
+                                                        model=data.get("model", model)
+                                                    )
+                                        else:
+                                            yield StreamChunk(
+                                                content=new_text,
+                                                finish_reason=choice.get("finish_reason"),
+                                                model=data.get("model", model)
+                                            )
+                                
+                                # Handle reasoning_content - wrap in <think> tags for renderer
+                                if delta.get("reasoning_content"):
+                                    has_content = True
+                                    reasoning = delta["reasoning_content"]
+                                    # Wrap in think tags so renderer shows it as reasoning
+                                    yield StreamChunk(
+                                        content=f"<think>{reasoning}</think>",
+                                        finish_reason=choice.get("finish_reason"),
+                                        model=data.get("model", model)
+                                    )
+                        except json.JSONDecodeError:
+                            continue
+                    
+                    # If no content was received, yield empty to avoid hanging
+                    if not has_content:
+                        yield StreamChunk(content="", finish_reason="stop", model=model)
+            except httpx.HTTPStatusError as e:
+                raise ValueError(f"Qwen API HTTP error: {e.response.status_code}")
+            except httpx.RequestError as e:
+                raise ValueError(f"Qwen API request error: {e}")
     
     async def list_models(self) -> list[str]:
         """List available Qwen models."""

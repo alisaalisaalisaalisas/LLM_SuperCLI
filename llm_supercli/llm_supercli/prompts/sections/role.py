@@ -53,4 +53,9 @@ class RoleSection(PromptSection):
             lines.append("")
             lines.append(context.mode.base_instructions)
         
+        # Add current context prominently
+        lines.append("")
+        lines.append(f"You are currently working in: {context.cwd}")
+        lines.append("When the user asks about 'this project' or 'current project', they mean the files in this directory.")
+        
         return "\n".join(lines)

@@ -1,5 +1,4 @@
 """Tool executor for handling LLM tool calls."""
-import json
 import os
 import subprocess
 from pathlib import Path
@@ -45,7 +44,7 @@ class ToolExecutor:
     def _get_current_directory(self) -> str:
         """Get current working directory."""
         return self.working_dir
-    
+
     def _list_directory(self, path: str) -> str:
         """List contents of a directory."""
         dir_path = self._resolve_path(path)
@@ -94,7 +93,6 @@ class ToolExecutor:
         
         try:
             content = file_path.read_text(encoding='utf-8')
-            # Limit very large files
             if len(content) > 50000:
                 content = content[:50000] + f"\n\n... [truncated, file has {len(content)} characters total]"
             return content
@@ -111,7 +109,6 @@ class ToolExecutor:
         file_path = self._resolve_path(path)
         
         try:
-            # Create parent directories if needed
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(content, encoding='utf-8')
             return f"Successfully wrote {len(content)} characters to '{path}'"

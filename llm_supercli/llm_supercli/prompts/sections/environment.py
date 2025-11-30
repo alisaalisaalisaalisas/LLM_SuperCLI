@@ -15,21 +15,38 @@ class EnvironmentSection(PromptSection):
     current working environment including OS, shell, working directory,
     and optionally a project structure summary.
     
+    The section emphasizes that this information is already available
+    and the model should NOT ask the user for it.
+    
     Example output:
-        # Environment
+        # Current Environment (USE THIS INFORMATION)
         
-        Operating System: Windows
-        Shell: PowerShell
-        Working Directory: C:\\Users\\dev\\project
+        **IMPORTANT**: The following information is already available to you.
+        Do NOT ask the user for this information - use it directly.
+        
+        ## Working Directory
+        
+        **C:\\Users\\dev\\project**
+        
+        This is your current location. Use this path for all file operations.
+        
+        ## System Information
+        
+        - Operating System: Windows
+        - Shell: PowerShell
         
         ## Project Structure
         
+        The following shows the structure of the current project:
+        
+        ```
         project/
         ├── src/
         │   ├── main.py
         │   └── utils.py
         ├── tests/
         └── README.md
+        ```
     """
     
     def __init__(self, include_project_structure: bool = True) -> None:
@@ -67,17 +84,32 @@ class EnvironmentSection(PromptSection):
             context: The SectionContext containing environment info.
             
         Returns:
-            Formatted environment section.
+            Formatted environment section with emphasis on context usage.
         """
-        lines = ["# Environment", ""]
+        lines = [
+            "# Current Environment (USE THIS INFORMATION)",
+            "",
+            "**IMPORTANT**: The following information is already available to you.",
+            "Do NOT ask the user for this information - use it directly.",
+            "",
+        ]
         
-        # Basic environment info
+        # Working directory - made prominent
+        lines.append("## Working Directory")
+        lines.append("")
+        lines.append(f"**{context.cwd}**")
+        lines.append("")
+        lines.append("This is your current location. Use this path for all file operations.")
+        lines.append("")
+        
+        # System information
         os_name = self._get_os_display_name(context.os_type)
         shell_name = self._get_shell_display_name(context.shell)
         
-        lines.append(f"Operating System: {os_name}")
-        lines.append(f"Shell: {shell_name}")
-        lines.append(f"Working Directory: {context.cwd}")
+        lines.append("## System Information")
+        lines.append("")
+        lines.append(f"- Operating System: {os_name}")
+        lines.append(f"- Shell: {shell_name}")
         
         # Add any custom variables that might be relevant
         if context.variables:
@@ -96,7 +128,11 @@ class EnvironmentSection(PromptSection):
             lines.append("")
             lines.append("## Project Structure")
             lines.append("")
+            lines.append("The following shows the structure of the current project:")
+            lines.append("")
+            lines.append("```")
             lines.append(self._project_summary)
+            lines.append("```")
         
         return "\n".join(lines)
     

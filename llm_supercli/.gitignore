@@ -51,3 +51,6 @@ mcp_servers.json
 
 # Kiro specs
 .kiro/
+
+# Hypothesis (property-based testing cache)
+.hypothesis/

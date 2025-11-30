@@ -352,7 +352,7 @@ class ToolCatalog:
         return "\n".join(lines)
     
     def _render_text_syntax(self, tools: list[ToolDefinition]) -> list[str]:
-        """Render XML-style tool invocation syntax examples.
+        """Render Python-style tool invocation syntax examples.
         
         Args:
             tools: List of tools to generate examples for.
@@ -363,33 +363,102 @@ class ToolCatalog:
         lines = [
             "# Tool Invocation Syntax",
             "",
-            "To use a tool, format your request as follows:",
+            "To use a tool, write a function call in your response:",
             "",
-            "```xml",
-            "<function_calls>",
-            "<invoke name=\"tool_name\">",
-            "<parameter name=\"param_name\">value</parameter>",
-            "</invoke>",
-            "</function_calls>",
             "```",
-            "",
-            "Example:",
+            "tool_name('argument')",
+            "tool_name('arg1', 'arg2')",
+            "tool_name(param='value')",
+            "```",
             "",
         ]
         
-        # Add a concrete example using the first tool
+        # Add concrete examples using actual tool names
         if tools:
-            example_tool = tools[0]
-            lines.append("```xml")
-            lines.append("<function_calls>")
-            lines.append(f"<invoke name=\"{example_tool.name}\">")
+            lines.append("## Tool Examples")
+            lines.append("")
             
-            props = example_tool.parameters.get("properties", {})
-            for param_name in props:
-                lines.append(f"<parameter name=\"{param_name}\">example_value</parameter>")
-            
-            lines.append("</invoke>")
-            lines.append("</function_calls>")
-            lines.append("```")
+            for tool in tools:
+                lines.extend(self._render_tool_example(tool))
+                lines.append("")
         
         return lines
+    
+    def _render_tool_example(self, tool: ToolDefinition) -> list[str]:
+        """Render a Python-style example for a single tool.
+        
+        Args:
+            tool: The tool definition to render an example for.
+            
+        Returns:
+            List of lines for the tool example.
+        """
+        lines = [f"### {tool.name}"]
+        
+        props = tool.parameters.get("properties", {})
+        required = set(tool.parameters.get("required", []))
+        
+        if not props:
+            # Tool with no parameters
+            lines.append("```")
+            lines.append(f"{tool.name}()")
+            lines.append("```")
+            return lines
+        
+        # Build parameter signature with types
+        param_parts = []
+        for param_name, param_info in props.items():
+            param_type = param_info.get("type", "string")
+            is_required = param_name in required
+            req_marker = "" if is_required else "?"
+            param_parts.append(f"{param_name}: {param_type}{req_marker}")
+        
+        lines.append(f"Signature: `{tool.name}({', '.join(param_parts)})`")
+        lines.append("")
+        
+        # Build example call with sample values
+        example_args = []
+        for param_name, param_info in props.items():
+            param_type = param_info.get("type", "string")
+            sample_value = self._get_sample_value(param_name, param_type)
+            example_args.append(f"{param_name}={sample_value}")
+        
+        lines.append("```")
+        lines.append(f"{tool.name}({', '.join(example_args)})")
+        lines.append("```")
+        
+        return lines
+    
+    def _get_sample_value(self, param_name: str, param_type: str) -> str:
+        """Get a sample value for a parameter based on its name and type.
+        
+        Args:
+            param_name: The parameter name.
+            param_type: The parameter type.
+            
+        Returns:
+            A sample value string appropriate for the parameter.
+        """
+        # Common parameter name patterns
+        if "path" in param_name.lower():
+            return "'./example.txt'"
+        if "content" in param_name.lower():
+            return "'file content here'"
+        if "command" in param_name.lower():
+            return "'ls -la'"
+        if "directory" in param_name.lower() or "dir" in param_name.lower():
+            return "'./src'"
+        
+        # Type-based defaults
+        if param_type == "string":
+            return "'example'"
+        if param_type == "number" or param_type == "integer":
+            return "42"
+        if param_type == "boolean":
+            return "True"
+        if param_type == "array":
+            return "['item1', 'item2']"
+        if param_type == "object":
+            return "{'key': 'value'}"
+        
+        return "'value'"

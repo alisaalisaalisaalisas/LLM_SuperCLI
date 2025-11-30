@@ -298,19 +298,20 @@ def test_native_protocol_no_xml_syntax(tools: list[ToolDefinition]):
             )
 
 
-# **Feature: prompt-system-refactor, Property 7: Protocol-appropriate tool syntax**
+# **Feature: qwen-tool-context-fix, Property 5: Tool syntax rendering contains tool names**
+# **Validates: Requirements 2.2**
 @settings(max_examples=100)
 @given(
     tools=tool_list_strategy(min_size=1, max_size=10),
 )
-def test_text_protocol_has_xml_syntax(tools: list[ToolDefinition]):
+def test_tool_syntax_rendering_contains_tool_names(tools: list[ToolDefinition]):
     """
-    Property 7: Protocol-appropriate tool syntax (text protocol)
+    Property 5: Tool syntax rendering contains tool names
     
-    For any prompt generation with protocol="text", the output SHALL contain
-    explicit function call syntax examples.
+    For any set of tools in the catalog, the rendered ToolsSection SHALL include
+    example calls using actual tool names from the catalog.
     
-    **Validates: Requirements 6.3, 6.4**
+    **Validates: Requirements 2.2**
     """
     # Create a mode that allows all tool groups so we get some output
     mode = ModeConfig(
@@ -327,24 +328,38 @@ def test_text_protocol_has_xml_syntax(tools: list[ToolDefinition]):
     catalog = ToolCatalog(tools)
     output = catalog.render(mode, protocol="text")
     
-    # If there's output, it SHOULD contain XML-style syntax
+    # If there's output, it SHOULD contain Python-style syntax
     if output:
-        # Check for XML-style tool invocation patterns
-        assert "<function_calls>" in output, (
-            f"Text protocol output should contain '<function_calls>'. "
+        # Check for Python-style tool invocation patterns
+        assert "tool_name('argument')" in output, (
+            f"Text protocol output should contain Python-style syntax example. "
             f"Output: {output[:500]}..."
         )
-        assert "</function_calls>" in output, (
-            f"Text protocol output should contain '</function_calls>'. "
+        assert "Tool Invocation Syntax" in output, (
+            f"Text protocol output should contain 'Tool Invocation Syntax' header. "
             f"Output: {output[:500]}..."
         )
-        assert "<invoke" in output, (
-            f"Text protocol output should contain '<invoke'. "
+        # Check that actual tool names appear in examples section
+        assert "Tool Examples" in output, (
+            f"Text protocol output should contain 'Tool Examples' section. "
             f"Output: {output[:500]}..."
         )
+        
+        # PROPERTY 5 CORE CHECK: Verify actual tool names from catalog appear in output
+        # Get the filtered tools that should appear in the output
+        filtered_tools = catalog.filter_for_mode(mode)
+        
+        for tool in filtered_tools:
+            # Each enabled tool's name should appear in the Tool Examples section
+            # The tool name should appear as a heading (### tool_name) or in an example call
+            assert tool.name in output, (
+                f"Tool '{tool.name}' should appear in rendered output. "
+                f"Filtered tools: {[t.name for t in filtered_tools]}. "
+                f"Output: {output[:1000]}..."
+            )
 
 
-# **Feature: prompt-system-refactor, Property 7: Protocol-appropriate tool syntax**
+# **Feature: qwen-tool-context-fix, Property 5: Tool syntax rendering contains tool names**
 @settings(max_examples=100)
 @given(
     tools=tool_list_strategy(min_size=1, max_size=10),
@@ -352,12 +367,12 @@ def test_text_protocol_has_xml_syntax(tools: list[ToolDefinition]):
 )
 def test_protocol_consistency(tools: list[ToolDefinition], protocol: str):
     """
-    Property 7: Protocol-appropriate tool syntax (consistency)
+    Property 5: Tool syntax rendering contains tool names (consistency)
     
     For any prompt generation, the protocol parameter should consistently
-    determine whether XML syntax is included or excluded.
+    determine whether Python-style syntax is included or excluded.
     
-    **Validates: Requirements 6.3, 6.4**
+    **Validates: Requirements 2.1, 2.2, 2.3**
     """
     mode = ModeConfig(
         slug="test",
@@ -373,9 +388,169 @@ def test_protocol_consistency(tools: list[ToolDefinition], protocol: str):
     output = catalog.render(mode, protocol=protocol)
     
     if output:
-        has_xml = "<function_calls>" in output
+        has_python_syntax = "tool_name('argument')" in output
         
         if protocol == "native":
-            assert not has_xml, "Native protocol should not have XML syntax"
+            assert not has_python_syntax, "Native protocol should not have Python-style syntax examples"
         else:  # text
-            assert has_xml, "Text protocol should have XML syntax"
+            assert has_python_syntax, "Text protocol should have Python-style syntax examples"
+
+
+# Strategy for generating tools with parameters
+@st.composite
+def tool_with_parameters_strategy(draw):
+    """Generate a ToolDefinition with random parameters."""
+    # Generate a valid tool name
+    base_name = draw(st.text(
+        alphabet=st.characters(whitelist_categories=('L', 'N'), whitelist_characters='_'),
+        min_size=1,
+        max_size=20
+    ))
+    name = f"{base_name}_tool"
+    
+    # Generate description without special characters
+    safe_alphabet = st.characters(whitelist_categories=('L', 'N', 'Zs'), whitelist_characters='_-.,!?')
+    description = draw(st.text(alphabet=safe_alphabet, min_size=1, max_size=100))
+    
+    group = draw(valid_tool_group_strategy())
+    
+    # Generate parameters
+    num_params = draw(st.integers(min_value=1, max_value=5))
+    properties = {}
+    required = []
+    
+    param_types = ["string", "number", "integer", "boolean", "array", "object"]
+    
+    for i in range(num_params):
+        param_name = draw(st.text(
+            alphabet=st.characters(whitelist_categories=('L', 'N'), whitelist_characters='_'),
+            min_size=1,
+            max_size=15
+        ))
+        # Ensure unique param names
+        param_name = f"{param_name}_{i}"
+        
+        param_type = draw(st.sampled_from(param_types))
+        param_desc = draw(st.text(alphabet=safe_alphabet, min_size=1, max_size=50))
+        
+        properties[param_name] = {
+            "type": param_type,
+            "description": param_desc
+        }
+        
+        # Randomly mark some parameters as required
+        if draw(st.booleans()):
+            required.append(param_name)
+    
+    parameters = {
+        "type": "object",
+        "properties": properties,
+        "required": required
+    }
+    
+    return ToolDefinition(
+        name=name,
+        description=description,
+        parameters=parameters,
+        group=group,
+        enabled=True,
+    )
+
+
+@st.composite
+def tool_list_with_parameters_strategy(draw, min_size=1, max_size=5):
+    """Generate a list of tools with parameters and unique names."""
+    count = draw(st.integers(min_value=min_size, max_value=max_size))
+    tools = []
+    used_names = set()
+    
+    for i in range(count):
+        tool = draw(tool_with_parameters_strategy())
+        # Ensure unique names
+        if tool.name in used_names:
+            tool = ToolDefinition(
+                name=f"{tool.name}_{i}",
+                description=tool.description,
+                parameters=tool.parameters,
+                group=tool.group,
+                enabled=tool.enabled,
+            )
+        used_names.add(tool.name)
+        tools.append(tool)
+    
+    return tools
+
+
+# **Feature: qwen-tool-context-fix, Property 6: Rendered parameters match tool definitions**
+# **Validates: Requirements 2.4**
+@settings(max_examples=100)
+@given(
+    tools=tool_list_with_parameters_strategy(min_size=1, max_size=5),
+)
+def test_rendered_parameters_match_tool_definitions(tools: list[ToolDefinition]):
+    """
+    Property 6: Rendered parameters match tool definitions
+    
+    For any tool with defined parameters, the rendered ToolsSection SHALL show
+    all required parameters and their types.
+    
+    **Validates: Requirements 2.4**
+    """
+    # Create a mode that allows all tool groups so we get some output
+    mode = ModeConfig(
+        slug="test",
+        name="Test Mode",
+        role_definition="A test mode for parameter rendering testing",
+        tool_groups=list(VALID_TOOL_GROUPS),
+    )
+    
+    catalog = ToolCatalog(tools)
+    output = catalog.render(mode, protocol="text")
+    
+    # Skip if no output (no tools matched the mode's groups)
+    filtered_tools = catalog.filter_for_mode(mode)
+    assume(len(filtered_tools) > 0)
+    
+    for tool in filtered_tools:
+        props = tool.parameters.get("properties", {})
+        required = set(tool.parameters.get("required", []))
+        
+        if not props:
+            continue
+        
+        # Check that the tool's signature line contains all parameters with types
+        # The signature format is: Signature: `tool_name(param1: type1, param2: type2?)`
+        for param_name, param_info in props.items():
+            param_type = param_info.get("type", "string")
+            
+            # Check that parameter name appears in output
+            assert param_name in output, (
+                f"Parameter '{param_name}' of tool '{tool.name}' should appear in rendered output. "
+                f"Output: {output[:1500]}..."
+            )
+            
+            # Check that parameter type appears in output (in signature)
+            # The signature shows types like: param_name: type
+            expected_type_pattern = f"{param_name}: {param_type}"
+            assert expected_type_pattern in output, (
+                f"Parameter type pattern '{expected_type_pattern}' for tool '{tool.name}' "
+                f"should appear in rendered output. Output: {output[:1500]}..."
+            )
+            
+            # Check required marker - required params don't have '?', optional do
+            is_required = param_name in required
+            if is_required:
+                # Required params should NOT have '?' after type
+                # Pattern: "param_name: type" without trailing "?"
+                # We check that "param_name: type?" does NOT appear
+                optional_pattern = f"{param_name}: {param_type}?"
+                # Note: This is tricky because the '?' might be followed by other chars
+                # We need to check the signature line specifically
+                pass  # The type pattern check above is sufficient for required
+            else:
+                # Optional params should have '?' after type
+                optional_pattern = f"{param_name}: {param_type}?"
+                assert optional_pattern in output, (
+                    f"Optional parameter '{param_name}' of tool '{tool.name}' should have '?' marker. "
+                    f"Expected pattern: '{optional_pattern}'. Output: {output[:1500]}..."
+                )

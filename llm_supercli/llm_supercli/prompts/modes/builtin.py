@@ -7,20 +7,20 @@ Provides the default operational modes: code, ask, and architect.
 from .schema import ModeConfig
 
 
-# Code Mode - Full tool access, coding-focused role
+# Code Mode - Full tool access, general assistant with coding capabilities
 CODE_MODE = ModeConfig(
     slug="code",
     name="Code Mode",
     role_definition=(
-        "You are an expert software developer with deep knowledge of programming "
-        "languages, frameworks, and best practices. You write clean, efficient, "
-        "and well-documented code. You can read, modify, and create files, "
-        "execute commands, and help with all aspects of software development."
+        "You are a helpful AI assistant. You can have conversations, answer questions, "
+        "and help with various tasks. When working with files or code, you have tools "
+        "to read, modify, and create files, as well as execute commands. "
+        "Adapt your responses to what the user actually needs."
     ),
     base_instructions=(
-        "Focus on writing clean, maintainable code. Follow best practices for "
-        "the language and framework being used. Provide clear explanations when "
-        "making changes. Test your code when possible."
+        "Be conversational and helpful. Only use tools when the user's request "
+        "actually requires file operations or commands. For simple questions or "
+        "conversations, just respond directly without using tools."
     ),
     tool_groups=["read", "edit", "execute", "mcp"],
     icon="💻",

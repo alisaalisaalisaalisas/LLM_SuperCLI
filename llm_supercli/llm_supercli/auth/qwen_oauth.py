@@ -4,8 +4,11 @@ Uses OAuth device code flow with chat.qwen.ai.
 Based on KiloCode implementation.
 """
 import asyncio
+import base64
+import hashlib
 import json
 import os
+import secrets
 import time
 import webbrowser
 from pathlib import Path
@@ -36,9 +39,20 @@ class QwenDeviceCodeResponse:
     interval: int
 
 
+def _generate_code_verifier() -> str:
+    """Generate a PKCE code verifier (43-128 chars, URL-safe)."""
+    return secrets.token_urlsafe(32)
+
+
+def _generate_code_challenge(verifier: str) -> str:
+    """Generate a PKCE code challenge from verifier using S256 method."""
+    digest = hashlib.sha256(verifier.encode('ascii')).digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b'=').decode('ascii')
+
+
 class QwenOAuth:
     """
-    Qwen OAuth Device Code Flow implementation.
+    Qwen OAuth Device Code Flow implementation with PKCE support.
     
     Uses chat.qwen.ai OAuth for free tier access.
     """
@@ -46,6 +60,7 @@ class QwenOAuth:
     def __init__(self) -> None:
         """Initialize Qwen OAuth handler."""
         self.client_id = QWEN_OAUTH_CLIENT_ID
+        self._code_verifier: Optional[str] = None
     
     def _get_credentials_path(self) -> Path:
         """Get path to credentials file."""
@@ -72,15 +87,27 @@ class QwenOAuth:
     
     async def request_device_code(self) -> QwenDeviceCodeResponse:
         """Request a device code for user authorization."""
+        # Generate PKCE code verifier and challenge
+        self._code_verifier = _generate_code_verifier()
+        code_challenge = _generate_code_challenge(self._code_verifier)
+        
+        # Browser-like headers to avoid WAF blocking
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Origin": QWEN_OAUTH_BASE_URL,
+            "Referer": f"{QWEN_OAUTH_BASE_URL}/",
+        }
+        
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 QWEN_OAUTH_DEVICE_CODE_ENDPOINT,
-                headers={
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "Accept": "application/json"
-                },
+                headers=headers,
                 content=urlencode({
                     "client_id": self.client_id,
+                    "code_challenge": code_challenge,
+                    "code_challenge_method": "S256",
                 }),
                 timeout=30.0
             )
@@ -98,10 +125,16 @@ class QwenOAuth:
                 print(f"[Qwen] Response text: {response.text[:500]}")
                 raise ValueError(f"Invalid JSON response from Qwen OAuth: {e}")
         
+        # Build verification URL with user_code and client as query params
+        user_code = data["user_code"]
+        base_verification_url = data.get("verification_uri", data.get("verification_url", f"{QWEN_OAUTH_BASE_URL}/authorize"))
+        # Qwen expects 'client' not 'client_id' in the URL
+        verification_url = f"{base_verification_url}?user_code={user_code}&client={self.client_id}"
+        
         return QwenDeviceCodeResponse(
             device_code=data["device_code"],
-            user_code=data["user_code"],
-            verification_url=data.get("verification_uri", data.get("verification_url", f"{QWEN_OAUTH_BASE_URL}/device")),
+            user_code=user_code,
+            verification_url=verification_url,
             expires_in=data.get("expires_in", 600),
             interval=data.get("interval", 5)
         )
@@ -115,20 +148,31 @@ class QwenOAuth:
         """Poll for access token after user authorizes."""
         start_time = time.time()
         
+        # Browser-like headers to avoid WAF blocking
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Origin": QWEN_OAUTH_BASE_URL,
+            "Referer": f"{QWEN_OAUTH_BASE_URL}/",
+        }
+        
         async with httpx.AsyncClient() as client:
             while time.time() - start_time < timeout:
                 try:
+                    # Include code_verifier for PKCE
+                    token_params = {
+                        "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                        "device_code": device_code,
+                        "client_id": self.client_id,
+                    }
+                    if self._code_verifier:
+                        token_params["code_verifier"] = self._code_verifier
+                    
                     response = await client.post(
                         QWEN_OAUTH_TOKEN_ENDPOINT,
-                        headers={
-                            "Content-Type": "application/x-www-form-urlencoded",
-                            "Accept": "application/json"
-                        },
-                        content=urlencode({
-                            "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
-                            "device_code": device_code,
-                            "client_id": self.client_id,
-                        }),
+                        headers=headers,
+                        content=urlencode(token_params),
                         timeout=30.0
                     )
                     
@@ -236,14 +280,20 @@ class QwenOAuth:
     
     async def refresh_token(self, refresh_token: str) -> Optional[AuthSession]:
         """Refresh an expired access token."""
+        # Browser-like headers to avoid WAF blocking
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Origin": QWEN_OAUTH_BASE_URL,
+            "Referer": f"{QWEN_OAUTH_BASE_URL}/",
+        }
+        
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.post(
                     QWEN_OAUTH_TOKEN_ENDPOINT,
-                    headers={
-                        "Content-Type": "application/x-www-form-urlencoded",
-                        "Accept": "application/json"
-                    },
+                    headers=headers,
                     content=urlencode({
                         "grant_type": "refresh_token",
                         "refresh_token": refresh_token,

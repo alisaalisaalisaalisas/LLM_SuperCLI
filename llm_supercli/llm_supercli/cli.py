@@ -17,7 +17,6 @@ from .history import get_session_store
 from .llm import get_provider_registry
 from .mcp import get_mcp_manager
 from .io_handlers import BashRunner, FileLoader
-from .tools import ToolExecutor
 from .prompts import PromptBuilder, PromptConfig, SectionManager, ContextBuilder
 from .prompts.sections import (
     RoleSection,
@@ -29,7 +28,16 @@ from .prompts.sections import (
 )
 from .prompts.modes import ModeManager
 from .prompts.rules import RulesLoader
-from .prompts.tools import ToolCatalog, ToolDefinition, get_builtin_tools
+from .prompts.tools import (
+    ToolCatalog,
+    ToolDefinition,
+    ToolExecutor,
+    get_builtin_tools,
+    ToolParser,
+    PythonStyleParser,
+    XMLStyleParser,
+    ParsedToolCall,
+)
 
 
 class CLI:
@@ -322,7 +330,7 @@ class CLI:
             context = self._build_context_with_tools(session)
             
             # Providers without native tool support - use simple streaming
-            no_tool_providers = ["qwen", "gemini"]
+            no_tool_providers = ["qwen", "gemini", "groq"]
             if self._config.llm.provider in no_tool_providers:
                 await self._get_streaming_response(provider, context, session)
             else:
@@ -491,10 +499,22 @@ class CLI:
             self._renderer.stop_spinner()
     
     async def _get_streaming_response(self, provider, context: list, session) -> None:
-        """Streaming response with text-based tool parsing for providers without native tool support."""
+        """Streaming response with text-based tool parsing for providers without native tool support.
+        
+        Uses the modular ToolParser to parse tool calls from model output in multiple
+        formats (Python-style, XML-style). Provides consistent visual feedback for
+        tool execution regardless of the format used.
+        
+        Requirements: 1.1, 1.4, 4.1, 4.2, 4.3, 4.4
+        """
         import re
         messages = context.copy()
         max_iterations = 3
+        
+        # Initialize the tool parser with registered format parsers
+        tool_parser = ToolParser()
+        tool_parser.register(PythonStyleParser())
+        tool_parser.register(XMLStyleParser())
         
         for _ in range(max_iterations):
             self._renderer.start_live_reasoning()
@@ -509,55 +529,39 @@ class CLI:
             finally:
                 response_content, reasoning_content = self._renderer.stop_live_stream()
             
-            # Check for text-based tool calls
-            tool_results = []
+            # Parse tool calls using the modular ToolParser
             content = response_content or ""
+            parsed_calls = tool_parser.parse(content)
             
-            # write_file('path', 'content')
-            for match in re.finditer(r'write_file\s*\(\s*[\'"]([^\'"]+)[\'"]\s*,\s*[\'"]([\s\S]*?)[\'"]\s*\)', content):
-                path, file_content = match.groups()
-                self._renderer.print(f"[cyan]📝 Writing file:[/cyan] {path}")
-                try:
-                    result = self._tools.execute("write_file", {"path": path, "content": file_content})
-                    self._renderer.print(f"[green]   ✓ Created successfully[/green]")
-                    tool_results.append(f"write_file({path}): success")
-                except Exception as e:
-                    self._renderer.print(f"[red]   ✗ Error: {e}[/red]")
-                    tool_results.append(f"write_file error: {e}")
+            # Execute parsed tool calls with consistent visual feedback
+            tool_results = []
+            num_calls = len(parsed_calls)
             
-            # Single-arg tools
-            for tool_name, arg in re.findall(r'(list_directory|read_file|create_directory)\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)', content):
-                icons = {"list_directory": "📂", "read_file": "📖", "create_directory": "📁"}
-                self._renderer.print(f"[cyan]{icons.get(tool_name, '🔧')} {tool_name}:[/cyan] {arg}")
-                try:
-                    result = self._tools.execute(tool_name, {"path": arg})
-                    preview = result[:150] + "..." if len(result) > 150 else result
-                    self._renderer.print(f"[dim]   {preview}[/dim]")
-                    tool_results.append(f"{tool_name}: {result}")
-                except Exception as e:
-                    self._renderer.print(f"[red]   ✗ Error: {e}[/red]")
-                    tool_results.append(f"{tool_name} error: {e}")
+            # Add visual header if multiple tool calls
+            if num_calls > 1:
+                self._renderer.print(f"[dim]─── Executing {num_calls} tool calls ───[/dim]")
             
-            # run_command
-            for cmd in re.findall(r'run_command\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)', content):
-                self._renderer.print(f"[cyan]⚡ Running:[/cyan] {cmd}")
-                try:
-                    result = self._tools.execute("run_command", {"command": cmd})
-                    preview = result[:150] + "..." if len(result) > 150 else result
-                    if preview.strip():
-                        self._renderer.print(f"[dim]   {preview}[/dim]")
-                    self._renderer.print(f"[green]   ✓ Done[/green]")
-                    tool_results.append(f"run_command: {result}")
-                except Exception as e:
-                    self._renderer.print(f"[red]   ✗ Error: {e}[/red]")
-                    tool_results.append(f"run_command error: {e}")
+            for i, call in enumerate(parsed_calls):
+                result_str = self._execute_tool_call(call)
+                tool_results.append(result_str)
+                
+                # Add visual separator between multiple tool calls
+                if num_calls > 1 and i < num_calls - 1:
+                    self._renderer.print("[dim]───[/dim]")
             
             if tool_results:
                 messages.append({"role": "assistant", "content": content})
-                messages.append({"role": "user", "content": "Tool results:\n" + "\n".join(tool_results) + "\n\nNow give a brief summary of what was done. Do NOT call more tools."})
+                messages.append({
+                    "role": "user",
+                    "content": "Tool results:\n" + "\n".join(tool_results) + "\n\nNow give a brief summary of what was done. Do NOT call more tools."
+                })
                 continue
             
             # No tool calls - done
+            # Display reasoning if present
+            if reasoning_content and reasoning_content.strip():
+                self._renderer.print_reasoning(reasoning_content.strip())
+            
             # Use response_content, fall back to reasoning only if response is empty
             final_content = response_content.strip() if response_content else ""
             if not final_content and reasoning_content:
@@ -570,6 +574,147 @@ class CLI:
                 self._renderer.print_message(final_content, role="assistant")
                 session.add_message("assistant", final_content)
             break
+    
+    def _execute_tool_call(self, call: ParsedToolCall) -> str:
+        """Execute a parsed tool call with consistent visual feedback.
+        
+        Provides uniform display for tool execution regardless of the parsing
+        format used (Python-style, XML-style, etc.).
+        
+        Args:
+            call: The parsed tool call to execute.
+            
+        Returns:
+            A string describing the result for inclusion in the conversation.
+            
+        Requirements: 4.1, 4.2, 4.3, 4.4
+        """
+        tool_name = call.name
+        arguments = call.arguments
+        
+        # Tool icons for consistent visual feedback
+        tool_icons = {
+            "read_file": "📖",
+            "write_file": "📝",
+            "list_directory": "📂",
+            "create_directory": "📁",
+            "run_command": "⚡",
+            "get_current_directory": "📍",
+        }
+        icon = tool_icons.get(tool_name, "🔧")
+        
+        # Normalize arguments - handle both positional (arg0, arg1) and named arguments
+        normalized_args = self._normalize_tool_arguments(tool_name, arguments)
+        
+        # Display tool execution header
+        args_preview = self._format_args_preview(normalized_args)
+        self._renderer.print(f"[cyan]{icon} {tool_name}[/cyan]{args_preview}")
+        
+        try:
+            result = self._tools.execute(tool_name, normalized_args)
+            
+            # Display success with result preview
+            preview = self._truncate_result(result, max_length=150)
+            if preview.strip():
+                self._renderer.print(f"[dim]   {preview}[/dim]")
+            self._renderer.print(f"[green]   ✓ Success[/green]")
+            
+            return f"{tool_name}: {result}"
+            
+        except Exception as e:
+            # Display failure with error message
+            self._renderer.print(f"[red]   ✗ Error: {e}[/red]")
+            return f"{tool_name} error: {e}"
+    
+    def _normalize_tool_arguments(self, tool_name: str, arguments: dict) -> dict:
+        """Normalize tool arguments from positional to named format.
+        
+        Converts positional arguments (arg0, arg1, etc.) to the named
+        arguments expected by the ToolExecutor.
+        
+        Args:
+            tool_name: The name of the tool being called.
+            arguments: The parsed arguments dictionary.
+            
+        Returns:
+            Normalized arguments dictionary with proper parameter names.
+        """
+        # If arguments already have proper names, return as-is
+        if not any(key.startswith('arg') and key[3:].isdigit() for key in arguments):
+            return arguments
+        
+        # Map positional arguments to named parameters based on tool
+        param_mappings = {
+            "read_file": ["path"],
+            "write_file": ["path", "content"],
+            "list_directory": ["path"],
+            "create_directory": ["path"],
+            "run_command": ["command"],
+            "get_current_directory": [],
+        }
+        
+        param_names = param_mappings.get(tool_name, [])
+        normalized = {}
+        
+        # Copy over any already-named arguments
+        for key, value in arguments.items():
+            if not (key.startswith('arg') and key[3:].isdigit()):
+                normalized[key] = value
+        
+        # Map positional arguments to named parameters
+        for i, param_name in enumerate(param_names):
+            arg_key = f'arg{i}'
+            if arg_key in arguments and param_name not in normalized:
+                normalized[param_name] = arguments[arg_key]
+        
+        return normalized
+    
+    def _format_args_preview(self, arguments: dict) -> str:
+        """Format arguments for display in tool execution header.
+        
+        Args:
+            arguments: The tool arguments dictionary.
+            
+        Returns:
+            Formatted string for display, or empty string if no args.
+        """
+        if not arguments:
+            return ""
+        
+        # Show path or command prominently
+        if "path" in arguments:
+            return f": {arguments['path']}"
+        elif "command" in arguments:
+            cmd = arguments['command']
+            if len(cmd) > 50:
+                cmd = cmd[:47] + "..."
+            return f": {cmd}"
+        
+        # For other arguments, show a brief summary
+        preview_parts = []
+        for key, value in list(arguments.items())[:2]:
+            str_val = str(value)
+            if len(str_val) > 30:
+                str_val = str_val[:27] + "..."
+            preview_parts.append(f"{key}={str_val}")
+        
+        if preview_parts:
+            return f"({', '.join(preview_parts)})"
+        return ""
+    
+    def _truncate_result(self, result: str, max_length: int = 150) -> str:
+        """Truncate a result string for preview display.
+        
+        Args:
+            result: The result string to truncate.
+            max_length: Maximum length before truncation.
+            
+        Returns:
+            Truncated string with ellipsis if needed.
+        """
+        if len(result) <= max_length:
+            return result
+        return result[:max_length] + "..."
     
     async def _get_response_with_tools(self, provider, context: list, session, max_iterations: int = 10) -> None:
         """Get response from LLM with tool calling support and streaming reasoning."""
@@ -586,7 +731,9 @@ class CLI:
         
         while iteration < max_iterations:
             iteration += 1
-            self._renderer.start_spinner("Thinking...")
+            
+            # Start live reasoning display (handles both thinking indicator and streaming)
+            self._renderer.start_live_reasoning()
             
             try:
                 # First check for tool calls with non-streaming request
@@ -598,15 +745,14 @@ class CLI:
                     tools=tools_for_provider if tools_for_provider else None
                 )
                 
-                self._renderer.stop_spinner()
-                
                 raw = response.raw_response
                 choice = raw.get("choices", [{}])[0]
                 message = choice.get("message", {})
                 tool_calls = message.get("tool_calls")
                 
-                # If there are tool calls, execute them
+                # If there are tool calls, stop live display and execute them
                 if tool_calls:
+                    self._renderer.stop_live_stream()
                     messages.append(message)
                     
                     for tool_call in tool_calls:
@@ -631,8 +777,7 @@ class CLI:
                         })
                     continue
                 
-                # No tool calls - use streaming for real-time reasoning display
-                self._renderer.start_live_reasoning()
+                # No tool calls - continue streaming for real-time reasoning display
                 
                 try:
                     async for chunk in provider.chat_stream(
@@ -662,7 +807,7 @@ class CLI:
                 break
                 
             except Exception as e:
-                self._renderer.stop_spinner()
+                self._renderer.stop_live_stream()
                 raise e
         
         if iteration >= max_iterations:

@@ -14,13 +14,35 @@ from hypothesis import given, settings, strategies as st, assume
 from llm_supercli.prompts.context import ContextBuilder, interpolate, VariableError
 
 
+# Windows reserved device names that cannot be used as directory names
+WINDOWS_RESERVED_NAMES = {
+    'CON', 'PRN', 'AUX', 'NUL',
+    'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
+    'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9',
+}
+
+
+def is_valid_dirname(name: str) -> bool:
+    """Check if a name is valid for use as a directory name on Windows."""
+    if not name or not name.strip():
+        return False
+    if name.startswith('.'):
+        return False
+    if name in ('..', '.'):
+        return False
+    # Check Windows reserved names (case-insensitive)
+    if name.upper() in WINDOWS_RESERVED_NAMES:
+        return False
+    return True
+
+
 # **Feature: prompt-system-refactor, Property 9: Environment context freshness**
 @settings(max_examples=100)
 @given(subdir_name=st.text(
     alphabet=st.characters(whitelist_categories=('L', 'N'), whitelist_characters='_-'),
     min_size=1,
     max_size=20
-).filter(lambda x: x.strip() and not x.startswith('.') and x not in ('..', '.')))
+).filter(is_valid_dirname))
 def test_environment_context_freshness(subdir_name: str):
     """
     Property 9: Environment context freshness
