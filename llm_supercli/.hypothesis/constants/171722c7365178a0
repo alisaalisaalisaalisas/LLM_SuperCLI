@@ -1,0 +1,4 @@
+# file: C:\Users\User\Desktop\муусор\new\llm_supercli\llm_supercli\prompts\modes\__init__.py
+# hypothesis_version: 6.148.3
+
+['ARCHITECT_MODE', 'ASK_MODE', 'BUILTIN_MODES', 'CODE_MODE', 'MODE_SCHEMA', 'ModeConfig', 'ModeManager', 'ModeValidationError', 'VALID_TOOL_GROUPS', 'get_builtin_mode', 'get_builtin_modes', 'validate_mode_config']

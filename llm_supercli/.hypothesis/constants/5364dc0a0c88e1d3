@@ -1,0 +1,4 @@
+# file: C:\Users\User\Desktop\муусор\new\llm_supercli\llm_supercli\prompts\sections\environment.py
+# hypothesis_version: 6.148.3
+
+['# Environment', '## Project Structure', '/', 'Bash', 'Command Prompt (cmd)', 'Default Shell', 'Fish', 'PowerShell', 'Unix/Linux/macOS', 'Unknown', 'Unknown Shell', 'Windows', 'Zsh', '\\', 'bash', 'cmd', 'darwin', 'env_', 'environment', 'fish', 'home', 'macOS', 'nt', 'posix', 'powershell', 'pwsh', 'unknown', 'user', 'zsh']

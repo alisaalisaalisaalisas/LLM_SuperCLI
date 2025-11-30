@@ -17,7 +17,19 @@ from .history import get_session_store
 from .llm import get_provider_registry
 from .mcp import get_mcp_manager
 from .io_handlers import BashRunner, FileLoader
-from .tools import TOOLS, ToolExecutor
+from .tools import ToolExecutor
+from .prompts import PromptBuilder, PromptConfig, SectionManager, ContextBuilder
+from .prompts.sections import (
+    RoleSection,
+    CapabilitiesSection,
+    ToolsSection,
+    RulesSection,
+    EnvironmentSection,
+    FormattingSection,
+)
+from .prompts.modes import ModeManager
+from .prompts.rules import RulesLoader
+from .prompts.tools import ToolCatalog, ToolDefinition, get_builtin_tools
 
 
 class CLI:
@@ -41,9 +53,50 @@ class CLI:
         self._files = FileLoader()
         self._tools = ToolExecutor()
         self._running = False
-        self._current_mode: Optional[str] = None
+        self._current_mode: str = "code"  # Default mode
         self._input = PromptInput()
         self._input.set_commands(self._commands.list_commands())
+        
+        # Initialize the new prompt system
+        self._prompt_builder = self._create_prompt_builder()
+    
+    def _create_prompt_builder(self) -> PromptBuilder:
+        """Create and configure the PromptBuilder with default sections and modes.
+        
+        Returns:
+            A configured PromptBuilder instance.
+        """
+        # Create section manager and register default sections
+        section_manager = SectionManager()
+        section_manager.register(RoleSection())
+        section_manager.register(CapabilitiesSection())
+        section_manager.register(ToolsSection())
+        section_manager.register(RulesSection())
+        section_manager.register(EnvironmentSection())
+        section_manager.register(FormattingSection())
+        
+        # Create mode manager (loads built-in modes automatically)
+        mode_manager = ModeManager()
+        
+        # Create context builder
+        context_builder = ContextBuilder()
+        
+        # Create rules loader
+        rules_loader = RulesLoader()
+        
+        # Create tool catalog and populate with built-in tools
+        tool_catalog = ToolCatalog()
+        for tool in get_builtin_tools():
+            tool_catalog.add_tool(tool)
+        
+        # Create and return the prompt builder
+        return PromptBuilder(
+            section_manager=section_manager,
+            mode_manager=mode_manager,
+            context_builder=context_builder,
+            rules_loader=rules_loader,
+            tool_catalog=tool_catalog,
+        )
     
     def _parse_thinking(self, content: str) -> Tuple[str, str]:
         """
@@ -134,7 +187,7 @@ class CLI:
                 self._renderer.print_markdown(result.message)
     
     def _get_prompt(self) -> str:
-        """Get the input prompt string with model info."""
+        """Get the input prompt string with model info and current mode."""
         cwd = os.getcwd()
         # Show shortened path in prompt
         home = os.path.expanduser('~')
@@ -147,7 +200,7 @@ class CLI:
         if len(parts) > 3:
             short_path = '.../' + '/'.join(parts[-2:])
         
-        # Print model info above prompt
+        # Print model info above prompt with current mode
         provider = self._config.llm.provider.capitalize()
         model = self._config.llm.model
         # Only show Free for OAuth providers
@@ -156,7 +209,13 @@ class CLI:
             tier = " | [magenta]Free[/magenta]"
         else:
             tier = ""
-        self._renderer.print(f"[cyan]{provider}[/cyan] / [green]{model}[/green]{tier}")
+        
+        # Get current mode info
+        mode_slug = self.current_mode
+        mode_config = self._prompt_builder.mode_manager.get(mode_slug)
+        mode_display = f" | [yellow]{mode_config.icon} {mode_config.name}[/yellow]"
+        
+        self._renderer.print(f"[cyan]{provider}[/cyan] / [green]{model}[/green]{tier}{mode_display}")
         
         return f"[{short_path}] > "
     
@@ -273,73 +332,83 @@ class CLI:
             self._renderer.print_error(f"LLM Error: {e}")
     
     def _build_context_with_tools(self, session) -> list:
-        """Build message context with system prompt including current directory info."""
-        cwd = os.getcwd()
+        """Build message context with system prompt using the new PromptBuilder.
         
-        # Enhanced system prompt - KiloCode style
-        system_content = f"""You are an expert software engineer assistant with extensive capabilities.
-
-## Environment
-- Current working directory: {cwd}
-- Operating system: {os.name}
-
-## Your Capabilities
-
-### Code Development & Analysis
-- Write, modify, and refactor code in any programming language
-- Analyze existing codebases and suggest improvements
-- Debug and troubleshoot technical issues
-- Explain complex code and algorithms
-
-### File & Project Management
-- Read, edit, and create files
-- Analyze project structure and dependencies
-- Search across codebases using patterns
-
-### Development Environment
-- Execute shell commands and scripts
-- Work with version control (git)
-- Manage project workflows
-
-## Available Tools
-- list_directory('path') - List files and folders
-- read_file('path') - Read file contents  
-- write_file('path', 'content') - Create/write a file
-- create_directory('path') - Create a folder
-- run_command('command') - Run shell command
-
-## IMPORTANT: To use tools, write them exactly like this:
-write_file('landing.html', '<html>...</html>')
-list_directory('.')
-read_file('main.py')
-
-The system will execute these and show you the results.
-
-## Guidelines
-1. When asked about files or code, USE TOOLS to examine them first
-2. Provide detailed, technical responses with code examples when relevant
-3. Think through complex problems step by step
-4. Be proactive - suggest improvements and best practices
-5. Format responses with markdown for readability
-
-## Response Format
-For complex tasks, use this format:
-<think>
-Your reasoning and thought process here (brief, 1-3 sentences)
-</think>
-Your actual response to the user here (this is required - never leave empty)
-
-IMPORTANT: Always include a response AFTER the </think> tag. The thinking is optional but the response is mandatory."""
-
-        messages = [{"role": "system", "content": system_content}]
+        Uses the modular prompt system to generate the system prompt based on
+        the current mode and configuration.
         
-        # Add conversation history
+        Args:
+            session: The current session containing conversation history.
+            
+        Returns:
+            List of messages with system prompt prepended.
+        """
+        # Get mode from session metadata or use default
+        mode = self._get_session_mode(session)
+        
+        # Build prompt configuration
+        config = PromptConfig(
+            mode=mode,
+            include_tools=True,
+            include_mcp=self._config.mcp.enabled,
+        )
+        
+        # Get conversation history (excluding system messages)
         context = session.get_context()
-        for msg in context:
-            if msg.get("role") != "system":
-                messages.append(msg)
+        conversation = [msg for msg in context if msg.get("role") != "system"]
         
-        return messages
+        # Use PromptBuilder to generate messages with system prompt
+        return self._prompt_builder.build_messages(config, conversation)
+    
+    def _get_session_mode(self, session) -> str:
+        """Get the current mode from session metadata.
+        
+        Args:
+            session: The current session.
+            
+        Returns:
+            The mode slug from session metadata, or default "code".
+        """
+        if session and hasattr(session, "metadata") and session.metadata:
+            return session.metadata.get("mode", self._current_mode)
+        return self._current_mode
+    
+    def _set_session_mode(self, session, mode: str) -> None:
+        """Set the mode in session metadata.
+        
+        Args:
+            session: The current session.
+            mode: The mode slug to set.
+        """
+        if session:
+            if not hasattr(session, "metadata") or session.metadata is None:
+                session.metadata = {}
+            session.metadata["mode"] = mode
+            self._sessions.save_session(session)
+        self._current_mode = mode
+    
+    @property
+    def current_mode(self) -> str:
+        """Get the current operational mode."""
+        session = self._sessions.current_session
+        return self._get_session_mode(session)
+    
+    @current_mode.setter
+    def current_mode(self, mode: str) -> None:
+        """Set the current operational mode.
+        
+        Args:
+            mode: The mode slug to switch to.
+        """
+        # Validate mode exists (will fall back to default if not found)
+        self._prompt_builder.mode_manager.get(mode)
+        session = self._sessions.current_session
+        self._set_session_mode(session, mode)
+    
+    @property
+    def prompt_builder(self) -> PromptBuilder:
+        """Get the prompt builder instance."""
+        return self._prompt_builder
     
     async def _stream_response(self, provider, context: list, session) -> None:
         """Stream response from LLM with live reasoning display."""
@@ -507,6 +576,14 @@ IMPORTANT: Always include a response AFTER the </think> tag. The thinking is opt
         messages = context.copy()
         iteration = 0
         
+        # Get tools filtered by current mode
+        mode_slug = self._get_session_mode(session)
+        mode_config = self._prompt_builder.mode_manager.get(mode_slug)
+        filtered_tools = self._prompt_builder.tool_catalog.filter_for_mode(mode_config)
+        
+        # Convert to OpenAI format for native tool calling
+        tools_for_provider = [tool.to_openai_format() for tool in filtered_tools]
+        
         while iteration < max_iterations:
             iteration += 1
             self._renderer.start_spinner("Thinking...")
@@ -518,7 +595,7 @@ IMPORTANT: Always include a response AFTER the </think> tag. The thinking is opt
                     model=self._config.llm.model,
                     temperature=self._config.llm.temperature,
                     max_tokens=self._config.llm.max_tokens,
-                    tools=TOOLS
+                    tools=tools_for_provider if tools_for_provider else None
                 )
                 
                 self._renderer.stop_spinner()

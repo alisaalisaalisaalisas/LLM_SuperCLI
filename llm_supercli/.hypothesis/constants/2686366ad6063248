@@ -1,0 +1,4 @@
+# file: C:\Users\User\Desktop\муусор\new\llm_supercli\llm_supercli\prompts\modes\schema.py
+# hypothesis_version: 6.148.3
+
+[100, '-', 'ModeConfig', '^[a-z][a-z0-9-]*$', 'additionalProperties', 'array', 'base_instructions', 'edit', 'enum', 'execute', 'icon', 'items', 'maxLength', 'mcp', 'minLength', 'name', 'object', 'pattern', 'properties', 'read', 'required', 'role_definition', 'slug', 'string', 'tool_groups', 'type', '🤖']

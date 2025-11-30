@@ -1,0 +1,4 @@
+# file: C:\Users\User\Desktop\муусор\new\llm_supercli\llm_supercli\constants.py
+# hypothesis_version: 6.148.3
+
+[0.7, 100, 300, 4096, 8765, 128000, '!', '.auth_cache', '.llm_supercli', '/', '1.0.18', '@', 'GROQ_API_KEY', 'Groq', 'HF_API_KEY', 'HuggingFace', 'OPENROUTER_API_KEY', 'Ollama (Local)', 'OpenRouter', 'Qwen (OAuth)', 'TOGETHER_API_KEY', 'Together AI', 'auto', 'base_url', 'codellama', 'coder-model', 'config.json', 'default', 'env_key', 'gemini', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemma2-9b-it', 'google/gemma-7b-it', 'groq', 'history.db', 'huggingface', 'llama-3.1-8b-instant', 'llama3.2', 'llm_supercli', 'mcp_servers.json', 'mistral', 'mixtral-8x7b-32768', 'models', 'name', 'ollama', 'openai/gpt-4o', 'openrouter', 'phi3', 'qwen', 'sessions', 'themes', 'together', 'vision-model']

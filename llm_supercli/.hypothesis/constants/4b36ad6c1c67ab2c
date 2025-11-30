@@ -1,0 +1,4 @@
+# file: C:\Users\User\Desktop\муусор\new\llm_supercli\llm_supercli\prompts\tools\catalog.py
+# hypothesis_version: 6.148.3
+
+[' (required)', '# Available Tools', '</function_calls>', '</invoke>', '<function_calls>', 'Example:', 'No description', 'Parameters:', 'ToolDefinition', '```', '```xml', 'create_directory', 'description', 'edit', 'execute', 'function', 'inputSchema', 'list_directory', 'mcp', 'name', 'parameters', 'properties', 'read', 'read_file', 'required', 'run_command', 'text', 'write_file']

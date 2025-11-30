@@ -1,0 +1,4 @@
+# file: C:\Users\User\Desktop\муусор\new\llm_supercli\llm_supercli\prompts\config.py
+# hypothesis_version: 6.148.3
+
+['1.0', 'PromptConfig', 'additionalProperties', 'boolean', 'code', 'custom_instructions', 'enabled', 'include_mcp', 'include_tools', 'integer', 'mode', 'null', 'object', 'order', 'properties', 'required', 'sections', 'string', 'template', 'type', 'variables', 'version']

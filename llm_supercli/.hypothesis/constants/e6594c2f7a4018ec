@@ -1,0 +1,4 @@
+# file: C:\Users\User\Desktop\муусор\new\llm_supercli\llm_supercli\prompts\sections\capabilities.py
+# hypothesis_version: 6.148.3
+
+['# Capabilities', '/', 'PowerShell', 'Unix/Linux/macOS', 'Windows', '\\', 'bash', 'capabilities', 'cmd', 'darwin', 'default shell', 'edit', 'execute', 'fish', 'macOS', 'mcp', 'name', 'nt', 'posix', 'powershell', 'pwsh', 'read', 'unknown', 'zsh']

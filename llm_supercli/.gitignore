@@ -48,3 +48,6 @@ mcp_servers.json
 
 # Local configuration directory
 .llm_supercli/
+
+# Kiro specs
+.kiro/

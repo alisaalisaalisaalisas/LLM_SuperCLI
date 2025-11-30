@@ -1,0 +1,4 @@
+# file: C:\Users\User\Desktop\муусор\new\llm_supercli\llm_supercli\prompts\context.py
+# hypothesis_version: 6.148.3
+
+['*', '*.egg-info', '.', '.*', '.DS_Store', '.env', '.git', '.hg', '.idea', '.mypy_cache', '.nox', '.pytest_cache', '.svn', '.tox', '.venv', '.vs', '.vscode', 'COMSPEC', 'SHELL', 'Thumbs.db', '\\.', '\\{\\{(\\w+)\\}\\}', '__pycache__', 'bin', 'build', 'cwd', 'dist', 'eggs', 'env', 'home', 'node_modules', 'obj', 'os_type', 'out', 'shell', 'target', 'unknown', 'venv', '│   ', '└── ', '├── ']

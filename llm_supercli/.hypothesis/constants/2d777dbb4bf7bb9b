@@ -1,0 +1,4 @@
+# file: C:\Users\User\Desktop\муусор\new\llm_supercli\llm_supercli\prompts\sections\tools.py
+# hypothesis_version: 6.148.3
+
+[' (required)', '# Available Tools', '## MCP Tools', '</function_calls>', '</invoke>', '<function_calls>', 'Example:', 'No description', 'Parameters:', '```', '```xml', 'description', 'inputSchema', 'mcp', 'name', 'properties', 'required', 'text', 'tools', 'unknown']

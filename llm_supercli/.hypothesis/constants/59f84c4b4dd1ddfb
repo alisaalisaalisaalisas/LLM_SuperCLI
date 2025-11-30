@@ -1,0 +1,4 @@
+# file: C:\Users\User\Desktop\муусор\new\llm_supercli\llm_supercli\prompts\sections\__init__.py
+# hypothesis_version: 6.148.3
+
+['CapabilitiesSection', 'EnvironmentSection', 'FormattingSection', 'ModeConfig', 'PromptSection', 'RoleSection', 'RulesSection', 'SectionContext', 'SectionManager', 'ToolDefinition', 'ToolsSection']

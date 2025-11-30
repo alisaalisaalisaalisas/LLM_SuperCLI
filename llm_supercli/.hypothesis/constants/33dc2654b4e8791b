@@ -1,0 +1,4 @@
+# file: C:\Users\User\Desktop\муусор\new\llm_supercli\llm_supercli\prompts\modes\builtin.py
+# hypothesis_version: 6.148.3
+
+['Architect Mode', 'Ask Mode', 'Code Mode', 'architect', 'ask', 'code', 'edit', 'execute', 'mcp', 'read', '❓', '🏗️', '💻']

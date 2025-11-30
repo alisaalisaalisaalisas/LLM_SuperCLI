@@ -1,0 +1,4 @@
+# file: C:\Users\User\Desktop\муусор\new\llm_supercli\llm_supercli\prompts\tools\__init__.py
+# hypothesis_version: 6.148.3
+
+['BUILTIN_TOOLS', 'TOOL_GROUPS', 'ToolCatalog', 'ToolDefinition', 'get_builtin_tools']

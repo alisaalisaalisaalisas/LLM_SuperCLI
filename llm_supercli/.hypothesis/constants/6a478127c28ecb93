@@ -1,0 +1,4 @@
+# file: C:\Users\User\Desktop\муусор\new\llm_supercli\llm_supercli\prompts\builder.py
+# hypothesis_version: 6.148.3
+
+['content', 'cwd', 'description', 'inputSchema', 'mcp', 'name', 'os_type', 'role', 'shell', 'system']
