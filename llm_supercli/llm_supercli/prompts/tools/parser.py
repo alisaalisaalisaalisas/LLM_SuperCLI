@@ -159,34 +159,25 @@ class PythonStyleParser(FormatParser):
     - tool_name('positional', named='value')
     
     Handles string escaping and multi-line content within strings.
+    Only matches known tool names to avoid false positives.
     
     **Feature: qwen-tool-context-fix**
     """
     
-    # Pattern to match function calls: identifier followed by parentheses
+    # Known valid tool names - ONLY these will be parsed as tool calls
+    _VALID_TOOLS = frozenset({
+        'read_file', 'write_file', 'list_directory', 'create_directory',
+        'run_command', 'get_current_directory',
+    })
+    
+    # Pattern to match function calls for known tools only
     # This captures the function name and the arguments portion
     _FUNC_CALL_PATTERN = re.compile(
-        r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*'  # function name and opening paren
+        r'\b(read_file|write_file|list_directory|create_directory|run_command|get_current_directory)\s*\(\s*'
         r'((?:[^()]*|\([^()]*\))*)'  # arguments (handles one level of nested parens)
         r'\s*\)',
         re.DOTALL
     )
-    
-    # Known tool names to filter out common false positives
-    _COMMON_BUILTINS = frozenset({
-        'print', 'len', 'str', 'int', 'float', 'bool', 'list', 'dict', 'set',
-        'tuple', 'range', 'enumerate', 'zip', 'map', 'filter', 'sorted',
-        'reversed', 'sum', 'min', 'max', 'abs', 'round', 'pow', 'divmod',
-        'isinstance', 'issubclass', 'hasattr', 'getattr', 'setattr', 'delattr',
-        'type', 'id', 'hash', 'repr', 'ascii', 'bin', 'hex', 'oct', 'ord', 'chr',
-        'format', 'vars', 'dir', 'help', 'input', 'open', 'exec', 'eval',
-        'compile', 'globals', 'locals', 'callable', 'classmethod', 'staticmethod',
-        'property', 'super', 'object', 'slice', 'iter', 'next', 'all', 'any',
-        'if', 'for', 'while', 'def', 'class', 'return', 'import', 'from',
-        'assert', 'raise', 'try', 'except', 'finally', 'with', 'as', 'pass',
-        'break', 'continue', 'lambda', 'yield', 'global', 'nonlocal', 'del',
-        'and', 'or', 'not', 'in', 'is', 'True', 'False', 'None',
-    })
     
     @property
     def name(self) -> str:
@@ -198,6 +189,9 @@ class PythonStyleParser(FormatParser):
     
     def parse(self, content: str) -> list[ParsedToolCall]:
         """Parse Python-style tool calls from content.
+        
+        Only matches known tool names to avoid false positives like
+        parsing "Frost" or "Shakespeare" as tool calls.
         
         Args:
             content: The model output text to parse.
@@ -215,8 +209,8 @@ class PythonStyleParser(FormatParser):
             args_str = match.group(2).strip()
             raw_text = match.group(0)
             
-            # Skip common Python builtins and keywords
-            if func_name.lower() in self._COMMON_BUILTINS:
+            # Double-check it's a valid tool (pattern should already ensure this)
+            if func_name not in self._VALID_TOOLS:
                 continue
             
             # Skip if it looks like a method call on an object (preceded by .)

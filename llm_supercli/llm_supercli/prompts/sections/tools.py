@@ -202,9 +202,16 @@ class ToolsSection(PromptSection):
         Returns:
             List of lines containing syntax documentation.
         """
+        # List available tool names explicitly
+        tool_names = [t.name for t in tools]
+        tool_list = ", ".join(tool_names) if tool_names else "none"
+        
         lines = [
             "",
             "# Tool Invocation Syntax",
+            "",
+            f"**IMPORTANT: You can ONLY use these tools: {tool_list}**",
+            "Do NOT invent or use any other tool names. Only the tools listed above exist.",
             "",
             "To use a tool, write a function call in your response:",
             "",

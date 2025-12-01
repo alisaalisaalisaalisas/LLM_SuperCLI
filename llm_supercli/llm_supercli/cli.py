@@ -330,14 +330,16 @@ class CLI:
             context = self._build_context_with_tools(session)
             
             # Providers without native tool support - use simple streaming
-            no_tool_providers = ["qwen", "gemini", "groq"]
+            # Note: Gemini supports native tool calling via functionCall, so it uses _get_response_with_tools
+            no_tool_providers = ["qwen", "groq"]
             if self._config.llm.provider in no_tool_providers:
                 await self._get_streaming_response(provider, context, session)
             else:
                 await self._get_response_with_tools(provider, context, session)
                 
         except Exception as e:
-            self._renderer.print_error(f"LLM Error: {e}")
+            error_msg = str(e) if str(e) else f"{type(e).__name__}: {repr(e)}"
+            self._renderer.print_error(f"LLM Error: {error_msg}")
     
     def _build_context_with_tools(self, session) -> list:
         """Build message context with system prompt using the new PromptBuilder.
@@ -533,8 +535,10 @@ class CLI:
                 response_content, reasoning_content = self._renderer.stop_live_stream()
             
             # Parse tool calls using the modular ToolParser
+            # Check both response content AND reasoning content (model sometimes puts tools in thinking)
             content = response_content or ""
-            parsed_calls = tool_parser.parse(content)
+            all_content = content + "\n" + (reasoning_content or "")
+            parsed_calls = tool_parser.parse(all_content)
             
             # Filter out duplicate tool calls (same tool + same args)
             unique_calls = []
@@ -544,13 +548,24 @@ class CLI:
                     unique_calls.append(call)
                     executed_calls.add(call_key)
             
+            # Strip tool call syntax from displayed content
+            # Remove XML-style: <tool_name(args)>...</tool_name> and <tool_name(args)>
+            display_content = re.sub(r'<\w+\([^)]*\)>[^<]*</\w+>', '', content)
+            display_content = re.sub(r'<\w+\([^)]*\)>', '', display_content)
+            # Remove Python-style: tool_name(args) - including inside code blocks
+            display_content = re.sub(r'\b(read_file|write_file|list_directory|create_directory|run_command|get_current_directory)\s*\([^)]*\)', '', display_content)
+            # Remove empty code blocks that contained only tool calls
+            display_content = re.sub(r'```\s*```', '', display_content)
+            display_content = re.sub(r'```\s*\n?\s*```', '', display_content)
+            display_content = display_content.strip()
+            
             # Execute parsed tool calls with consistent visual feedback
             tool_results = []
             num_calls = len(unique_calls)
             
             # Add visual header if multiple tool calls
             if num_calls > 1:
-                self._renderer.print(f"[dim]─── Executing {num_calls} tool calls ───[/dim]")
+                self._renderer.print_tool_section_header(num_calls)
             
             for i, call in enumerate(unique_calls):
                 result_str = self._execute_tool_call(call)
@@ -558,7 +573,7 @@ class CLI:
                 
                 # Add visual separator between multiple tool calls
                 if num_calls > 1 and i < num_calls - 1:
-                    self._renderer.print("[dim]───[/dim]")
+                    self._renderer.print_tool_separator()
             
             # Filter out invalid tool calls (tools that returned errors)
             valid_results = [r for r in tool_results if "Error: Unknown tool" not in r]
@@ -572,21 +587,39 @@ class CLI:
                 continue
             
             # No valid tool calls - check if we have a response to show
-            # Clean any remaining think tags from response
-            final_content = response_content.strip() if response_content else ""
+            # Clean any remaining think tags and tool syntax from response
+            final_content = display_content if display_content else ""
             final_content = re.sub(r'</?think>?', '', final_content).strip()
+            # Also clean any remaining tool-like patterns
+            final_content = re.sub(r'<[^>]*\([^)]*\)[^>]*>', '', final_content).strip()
             
             # If response is empty but we have reasoning, use reasoning as the response
             # (Qwen sometimes puts the actual response in reasoning_content)
             if not final_content and reasoning_content:
                 final_content = reasoning_content.strip()
                 final_content = re.sub(r'</?think>?', '', final_content).strip()
+                final_content = re.sub(r'<[^>]*\([^)]*\)[^>]*>', '', final_content).strip()
             
-            # NOTE: The response was already shown during streaming in the Live panel.
-            # We just need to save it to the session, not display it again.
+            # If still no content after tool calls, prompt for a summary
+            if not final_content and iteration >= 0:
+                # Limit summary prompts to avoid infinite loops
+                if iteration >= max_iterations - 1:
+                    self._renderer.print_warning("Model did not provide a response after tool calls.")
+                    break
+                # If we executed tools but got no response, ask for one
+                if tool_results:
+                    messages.append({"role": "assistant", "content": content})
+                    messages.append({
+                        "role": "user", 
+                        "content": "Now provide a brief response based on what you found. Be concise."
+                    })
+                    continue
+                # No tools and no content - just break
+                break
             
+            # NOTE: Response was already shown during streaming in the Live panel.
+            # The Live panel persists after stopping, so don't print again.
             if final_content:
-                # Don't print again - it was already shown during streaming
                 session.add_message("assistant", final_content)
             break
     
@@ -613,12 +646,6 @@ class CLI:
             "create_directory", "run_command", "get_current_directory"
         }
         
-        # Skip invalid/hallucinated tool names
-        if tool_name not in valid_tools:
-            self._renderer.print(f"[dim]🔧 {tool_name}[/dim]")
-            self._renderer.print(f"[red]   ✗ Error: Unknown tool '{tool_name}'[/red]")
-            return f"Error: Unknown tool '{tool_name}'"
-        
         # Tool icons for consistent visual feedback
         tool_icons = {
             "read_file": "📖",
@@ -630,32 +657,47 @@ class CLI:
         }
         icon = tool_icons.get(tool_name, "🔧")
         
+        # Skip invalid/hallucinated tool names
+        if tool_name not in valid_tools:
+            self._renderer.print_tool_call(tool_name, "", icon)
+            self._renderer.print_tool_result(f"Unknown tool '{tool_name}'", success=False)
+            return f"Error: Unknown tool '{tool_name}'"
+        
         # Normalize arguments - handle both positional (arg0, arg1) and named arguments
         normalized_args = self._normalize_tool_arguments(tool_name, arguments)
         
         # Display tool execution header
         args_preview = self._format_args_preview(normalized_args)
-        self._renderer.print(f"[cyan]{icon} {tool_name}[/cyan]{args_preview}")
+        self._renderer.print_tool_call(tool_name, args_preview.lstrip(": "), icon)
         
         try:
             result = self._tools.execute(tool_name, normalized_args)
             
             # Check if the tool executor returned an error
             if result.startswith("Error:"):
-                self._renderer.print(f"[red]   ✗ {result}[/red]")
+                self._renderer.print_tool_result(result, success=False)
                 return f"{tool_name}: {result}"
             
-            # Display success with result preview
-            preview = self._truncate_result(result, max_length=150)
-            if preview.strip():
-                self._renderer.print(f"[dim]   {preview}[/dim]")
-            self._renderer.print(f"[green]   ✓ Success[/green]")
+            # Display success with brief preview (shorter for file reads)
+            if tool_name == "read_file":
+                # For file reads, just show file info, not content
+                lines = result.count('\n') + 1
+                chars = len(result)
+                preview = f"Read {chars} chars, {lines} lines"
+            elif tool_name == "list_directory":
+                # For directory listing, show count
+                items = result.strip().split('\n') if result.strip() else []
+                preview = f"Found {len(items)} items"
+            else:
+                preview = result[:80] + "..." if len(result) > 80 else result
+            
+            self._renderer.print_tool_result(preview, success=True, max_preview=100)
             
             return f"{tool_name}: {result}"
             
         except Exception as e:
             # Display failure with error message
-            self._renderer.print(f"[red]   ✗ Error: {e}[/red]")
+            self._renderer.print_tool_result(f"Error: {e}", success=False)
             return f"{tool_name} error: {e}"
     
     def _normalize_tool_arguments(self, tool_name: str, arguments: dict) -> dict:
@@ -827,9 +869,9 @@ class CLI:
                     response_content = reasoning_content
                     reasoning_content = ""
                 
-                # Display response (reasoning was already shown during streaming)
+                # NOTE: Response was already displayed during streaming in the Live panel.
+                # Just save to session, don't print again to avoid duplicates.
                 if response_content:
-                    self._renderer.print_message(response_content, role="assistant")
                     session.add_message("assistant", response_content, tokens=len(response_content)//4)
                     self._sessions.save_session(session)
                     

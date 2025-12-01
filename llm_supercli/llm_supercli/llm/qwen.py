@@ -210,6 +210,7 @@ class QwenProvider(LLMProvider):
             "messages": messages,
             "temperature": temperature,
             "max_completion_tokens": max_tokens,
+            "repetition_penalty": 1.1,  # Discourage repetitive output
             **kwargs
         }
         
@@ -312,6 +313,7 @@ class QwenProvider(LLMProvider):
             "max_completion_tokens": max_tokens,
             "stream": True,
             "stream_options": {"include_usage": True},
+            "repetition_penalty": 1.1,  # Discourage repetitive output
             **kwargs
         }
         
@@ -370,9 +372,19 @@ class QwenProvider(LLMProvider):
                                 
                                 if content:
                                     # Handle incremental vs full content
+                                    # Qwen may send full accumulated content or just deltas
                                     new_text = content
-                                    if new_text.startswith(full_content):
-                                        new_text = new_text[len(full_content):]
+                                    
+                                    # If content starts with what we've seen, extract only the new part
+                                    if full_content and content.startswith(full_content):
+                                        new_text = content[len(full_content):]
+                                    # If content is completely different and longer, it might be full content
+                                    elif full_content and len(content) > len(full_content) and full_content in content:
+                                        # Find where the new content starts
+                                        idx = content.find(full_content)
+                                        if idx == 0:
+                                            new_text = content[len(full_content):]
+                                    
                                     full_content = content
                                     
                                     if new_text:

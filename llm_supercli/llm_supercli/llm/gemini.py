@@ -297,35 +297,6 @@ class GeminiProvider(LLMProvider):
             }
         }
         
-        start_time = time.perf_counter()
-        
-        url = f"{CODE_ASSIST_ENDPOINT}/{CODE_ASSIST_API_VERSION}:generateContent"
-        
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                url,
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Content-Type": "application/json"
-                },
-                json=request_body,
-                timeout=120.0
-            )
-            
-        contents = self._convert_messages(messages)
-        
-        request_body = {
-            "model": model,
-            "project": project_id,
-            "request": {
-                "contents": contents,
-                "generationConfig": {
-                    "temperature": temperature,
-                    "maxOutputTokens": max_tokens
-                }
-            }
-        }
-        
         # Add tools if provided
         tools = kwargs.get("tools")
         if tools:
@@ -393,6 +364,7 @@ class GeminiProvider(LLMProvider):
             if "choices" not in data:
                 data["choices"] = [{"message": {}}]
             
+            data["choices"][0]["message"]["role"] = "assistant"
             data["choices"][0]["message"]["tool_calls"] = tool_calls
             data["choices"][0]["message"]["content"] = content
         
@@ -445,53 +417,66 @@ class GeminiProvider(LLMProvider):
         url = f"{CODE_ASSIST_ENDPOINT}/{CODE_ASSIST_API_VERSION}:streamGenerateContent"
         
         async with httpx.AsyncClient() as client:
-            async with client.stream(
-                "POST",
-                url,
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Content-Type": "application/json"
-                },
-                params={"alt": "sse"},
-                json=request_body,
-                timeout=180.0
-            ) as response:
-                response.raise_for_status()
-                
-                buffer = ""
-                async for chunk in response.aiter_text():
-                    buffer += chunk
+            try:
+                async with client.stream(
+                    "POST",
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Content-Type": "application/json"
+                    },
+                    params={"alt": "sse"},
+                    json=request_body,
+                    timeout=180.0
+                ) as response:
+                    if not response.is_success:
+                        error_body = ""
+                        async for chunk in response.aiter_bytes():
+                            error_body += chunk.decode("utf-8", errors="ignore")
+                        raise ValueError(f"Gemini API error ({response.status_code}): {error_body[:500]}")
                     
-                    while "\n" in buffer:
-                        line, buffer = buffer.split("\n", 1)
-                        line = line.strip()
+                    buffer = ""
+                    async for chunk in response.aiter_text():
+                        buffer += chunk
                         
-                        if not line or not line.startswith("data: "):
-                            continue
-                        
-                        data_str = line[6:]
-                        if data_str == "[DONE]":
-                            return
-                        
-                        try:
-                            data = json.loads(data_str)
-                            response_data = data.get("response", data)
+                        while "\n" in buffer:
+                            line, buffer = buffer.split("\n", 1)
+                            line = line.strip()
                             
-                            if response_data.get("candidates"):
-                                candidate = response_data["candidates"][0]
-                                for part in candidate.get("content", {}).get("parts", []):
-                                    text = part.get("text", "")
-                                    if text and not part.get("thought"):
-                                        yield StreamChunk(
-                                            content=text,
-                                            finish_reason=candidate.get("finishReason"),
-                                            model=model
-                                        )
+                            if not line or not line.startswith("data: "):
+                                continue
+                            
+                            data_str = line[6:]
+                            if data_str == "[DONE]":
+                                return
+                            
+                            try:
+                                data = json.loads(data_str)
+                                response_data = data.get("response", data)
                                 
-                                if candidate.get("finishReason"):
-                                    return
-                        except json.JSONDecodeError:
-                            continue
+                                if response_data.get("candidates"):
+                                    candidate = response_data["candidates"][0]
+                                    for part in candidate.get("content", {}).get("parts", []):
+                                        text = part.get("text", "")
+                                        if text and not part.get("thought"):
+                                            yield StreamChunk(
+                                                content=text,
+                                                finish_reason=candidate.get("finishReason"),
+                                                model=model
+                                            )
+                                    
+                                    if candidate.get("finishReason"):
+                                        return
+                            except json.JSONDecodeError:
+                                continue
+            except httpx.HTTPStatusError as e:
+                raise ValueError(f"Gemini API HTTP error ({e.response.status_code}): {e}")
+            except httpx.RequestError as e:
+                error_detail = str(e) if str(e) else repr(e)
+                raise ValueError(f"Gemini API request error: {error_detail}")
+            except Exception as e:
+                error_detail = str(e) if str(e) else f"{type(e).__name__}: {repr(e)}"
+                raise ValueError(f"Gemini streaming error: {error_detail}")
     
     def _convert_tools(self, tools: list[dict]) -> list[dict]:
         """Convert OpenAI tools to Gemini format."""
