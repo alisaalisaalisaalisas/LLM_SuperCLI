@@ -2,6 +2,7 @@
 Rich UI renderer for llm_supercli.
 Handles rendering of messages, panels, markdown, code, and other UI elements.
 """
+import re
 import sys
 from typing import Any, Generator, Optional
 
@@ -17,6 +18,9 @@ from rich.tree import Tree
 
 from .theme import ThemeManager, get_theme_manager
 from .ascii import ASCIIArt
+from .message_renderer import MessageRenderer
+from .message_state import ToolCallRecord
+from .content_parser import parse_think_tags, filter_tool_syntax
 from ..constants import APP_NAME, APP_VERSION
 
 
@@ -41,6 +45,10 @@ class RichRenderer:
         )
         self._ascii_art = ASCIIArt()  # Auto-detect Unicode support
         self._live: Optional[Live] = None
+        
+        # Initialize MessageRenderer for streaming content
+        # Requirements: 7.1, 7.2, 7.3 - Integration with existing architecture
+        self._message_renderer = MessageRenderer(self._console, self._theme_manager)
     
     @property
     def console(self) -> Console:
@@ -392,214 +400,85 @@ class RichRenderer:
             self._live = None
     
     def start_live_reasoning(self) -> None:
-        """Start live display for streaming reasoning."""
+        """Start live display for streaming reasoning.
+        
+        Delegates to MessageRenderer.start_message() while maintaining
+        backward compatibility with existing interface.
+        
+        Requirements: 7.1, 7.2 - Maintain existing public interface
+        """
+        # Reset MessageRenderer for new message
+        if self._message_renderer.phase.value not in ("idle", "complete", "error"):
+            self._message_renderer.reset()
+        elif self._message_renderer.phase.value in ("complete", "error"):
+            self._message_renderer.reset()
+        
+        # Initialize legacy buffers for backward compatibility
+        # These are still used by stop_live_stream() return value
         self._reasoning_buffer = ""
-        self._response_buffer = ""  # Display buffer (filtered)
-        self._raw_response_buffer = ""  # Raw buffer (includes tool calls for CLI parsing)
+        self._response_buffer = ""
+        self._raw_response_buffer = ""
         self._in_thinking = False
-        self._first_chunk = True
-        self._tag_buffer = ""  # Buffer for detecting tags
-        self._in_tool_tag = False  # Track if inside a tool call tag
-        self._tool_tag_buffer = ""  # Buffer for tool tag content
-        self._in_python_tool = False  # Track if inside Python-style tool call
-        self._python_tool_buffer = ""  # Buffer for Python tool call
-        self._paren_depth = 0  # Track parenthesis depth for Python tool calls
-        self._live = Live(
-            Text("⠋ Thinking...", style="dim italic"),
-            console=self._console,
-            refresh_per_second=15,  # Faster refresh for smoother streaming
-            vertical_overflow="visible"
-        )
-        self._live.start()
+        
+        # Delegate to MessageRenderer
+        self._message_renderer.start_message()
     
     def update_live_stream(self, chunk: str) -> None:
-        """Update live stream with new chunk, handling <think> tags and filtering tool calls."""
-        if not self._live:
+        """Update live stream with new chunk, handling <think> tags and filtering tool calls.
+        
+        Delegates to MessageRenderer.stream_content() which handles parsing
+        of think tags and routing to appropriate stream methods.
+        
+        Requirements: 7.1, 7.2 - Maintain existing public interface
+        """
+        if not chunk:
             return
         
-        # Initialize tracking if not present
-        if not hasattr(self, '_in_tool_tag'):
-            self._in_tool_tag = False
-            self._tool_tag_buffer = ""
-        if not hasattr(self, '_in_python_tool'):
-            self._in_python_tool = False
-            self._python_tool_buffer = ""
-            self._paren_depth = 0
+        # Ensure legacy buffers exist for backward compatibility
         if not hasattr(self, '_raw_response_buffer'):
             self._raw_response_buffer = ""
+        if not hasattr(self, '_reasoning_buffer'):
+            self._reasoning_buffer = ""
+        if not hasattr(self, '_response_buffer'):
+            self._response_buffer = ""
+        if not hasattr(self, '_in_thinking'):
+            self._in_thinking = False
         
         # Always add chunk to raw buffer (for CLI tool parsing)
         self._raw_response_buffer += chunk
         
-        # Tool names to filter from display
-        tool_names = ['read_file', 'write_file', 'list_directory', 'create_directory', 'run_command', 'get_current_directory']
+        # Delegate to MessageRenderer for streaming display
+        # MessageRenderer handles think tag parsing and content routing
+        self._message_renderer.stream_content(chunk)
         
-        # Process chunk character by character with tag detection
-        i = 0
-        while i < len(chunk):
-            char = chunk[i]
-            
-            # If we're inside a Python-style tool call, track parentheses
-            if self._in_python_tool:
-                self._python_tool_buffer += char
-                if char == '(':
-                    self._paren_depth += 1
-                elif char == ')':
-                    self._paren_depth -= 1
-                    if self._paren_depth == 0:
-                        # Tool call complete - discard it
-                        self._in_python_tool = False
-                        self._python_tool_buffer = ""
-                i += 1
-                continue
-            
-            # Check for tag start
-            if char == '<':
-                self._tag_buffer = char
-                i += 1
-                continue
-            
-            # If we're building a tag
-            if self._tag_buffer:
-                self._tag_buffer += char
-                
-                # Check for complete think opening tag
-                if self._tag_buffer == "<think>":
-                    self._in_thinking = True
-                    self._tag_buffer = ""
-                # Check for complete think closing tag
-                elif self._tag_buffer == "</think>":
-                    self._in_thinking = False
-                    self._tag_buffer = ""
-                # Check for tool call tag (e.g., <read_file(, <create_directory(, etc.)
-                elif '(' in self._tag_buffer and self._tag_buffer.startswith('<'):
-                    self._in_tool_tag = True
-                    self._tool_tag_buffer = self._tag_buffer
-                    self._tag_buffer = ""
-                # If tag buffer gets too long, flush it
-                elif len(self._tag_buffer) > 50:
-                    if self._in_thinking:
-                        self._reasoning_buffer += self._tag_buffer
-                    else:
-                        self._response_buffer += self._tag_buffer
-                    self._tag_buffer = ""
-                
-                i += 1
-                continue
-            
-            # If we're inside an XML tool tag
-            if self._in_tool_tag:
-                self._tool_tag_buffer += char
-                if char == '>' or any(self._tool_tag_buffer.endswith(f'</{t}>') for t in tool_names):
-                    self._in_tool_tag = False
-                    self._tool_tag_buffer = ""
-                i += 1
-                continue
-            
-            # Check for Python-style tool call start
-            # Look back in response buffer to see if we're starting a tool call
-            if char == '(' and not self._in_thinking:
-                # Check if the buffer ends with a tool name
-                for tool in tool_names:
-                    if self._response_buffer.rstrip().endswith(tool):
-                        # Remove the tool name from buffer and start filtering
-                        self._response_buffer = self._response_buffer.rstrip()[:-len(tool)].rstrip()
-                        self._in_python_tool = True
-                        self._python_tool_buffer = tool + char
-                        self._paren_depth = 1
-                        break
-                else:
-                    # Not a tool call, add normally
-                    if self._in_thinking:
-                        self._reasoning_buffer += char
-                    else:
-                        self._response_buffer += char
-                i += 1
-                continue
-            
-            # Regular character - add to appropriate buffer
-            if self._in_thinking:
-                self._reasoning_buffer += char
-            else:
-                self._response_buffer += char
-            i += 1
-        
-        # Clean tool syntax from display buffers
-        import re
-        display_response = self._response_buffer
-        # Remove XML-style tool patterns
-        display_response = re.sub(r'<\w+\([^)]*\)>[^<]*</\w+>', '', display_response)
-        display_response = re.sub(r'<\w+\([^)]*\)>', '', display_response)
-        # Remove Python-style tool calls (multiline support with DOTALL)
-        tool_names = r'(read_file|write_file|list_directory|create_directory|run_command|get_current_directory)'
-        # Match tool_name(...) including multiline content
-        display_response = re.sub(tool_names + r'\s*\([^)]*\)', '', display_response, flags=re.DOTALL)
-        # Also handle cases where content has nested parens or spans multiple lines
-        display_response = re.sub(tool_names + r'\s*\(.*?\)', '', display_response, flags=re.DOTALL)
-        display_response = display_response.strip()
-        
-        # Clean tool calls and code blocks from reasoning for display
-        import re
-        display_reasoning = self._reasoning_buffer
-        # Remove tool calls from reasoning display
-        tool_pattern = r'(read_file|write_file|list_directory|create_directory|run_command|get_current_directory)\s*\([^)]*\)'
-        display_reasoning = re.sub(tool_pattern, '', display_reasoning)
-        # Remove empty code blocks
-        display_reasoning = re.sub(r'```\s*\n?\s*```', '', display_reasoning)
-        display_reasoning = re.sub(r'```[^`]*```', '', display_reasoning)
-        display_reasoning = display_reasoning.strip()
-        
-        # Additional cleanup - remove multiple newlines, empty code blocks, and excess whitespace
-        display_response = re.sub(r'```\s*```', '', display_response)
-        display_response = re.sub(r'\n{3,}', '\n\n', display_response)
-        display_response = re.sub(r'\n\s*\n\s*\n', '\n\n', display_response)
-        display_response = display_response.strip()
-        
-        # Update display based on what content we have
-        # Only show panels if there's actual meaningful content
-        if self._in_thinking and display_reasoning and len(display_reasoning.strip()) > 10:
-            panel = Panel(
-                Text(display_reasoning, style="dim italic"),
-                title="[yellow]💭 Reasoning[/yellow]",
-                border_style="yellow",
-                padding=(0, 1)
-            )
-            self._live.update(panel)
-        elif display_response and len(display_response.strip()) > 5:
-            from rich.markdown import Markdown
-            icon = self._ascii_art.get_icon("robot")
-            panel = Panel(
-                Markdown(display_response),
-                title=f"[{self._theme_manager.get_style('assistant_message')}]{icon} Assistant[/{self._theme_manager.get_style('assistant_message')}]",
-                title_align="left",
-                border_style=self._theme_manager.get_color("primary"),
-                padding=(0, 1)
-            )
-            self._live.update(panel)
-        else:
-            self._live.update(Text("⠋ Thinking...", style="dim italic"))
+        # Sync legacy buffers from MessageRenderer for backward compatibility
+        self._reasoning_buffer = self._message_renderer.buffer.reasoning
+        self._response_buffer = self._message_renderer.buffer.response
+        self._in_thinking = self._message_renderer._in_thinking
     
     def stop_live_stream(self) -> tuple:
         """
         Stop live stream and return buffers.
         
+        Delegates to MessageRenderer.finalize() while maintaining
+        backward compatibility with existing interface.
+        
+        Requirements: 7.1, 7.2 - Maintain existing public interface
+        
         Returns:
             Tuple of (response_content, reasoning_content)
             Note: response_content includes raw tool calls for parsing by CLI
         """
-        if self._live:
-            self._live.stop()
-            self._live = None
+        # Finalize via MessageRenderer
+        filtered_response, reasoning = self._message_renderer.finalize()
         
-        reasoning = getattr(self, '_reasoning_buffer', '')
-        # Return raw response including tool calls (CLI needs them for parsing)
-        response = getattr(self, '_raw_response_buffer', getattr(self, '_response_buffer', ''))
+        # For backward compatibility, return raw response (CLI needs tool calls for parsing)
+        # The filtered_response has tool syntax removed, but CLI may need the raw version
+        raw_response = getattr(self, '_raw_response_buffer', filtered_response)
         
         # If reasoning contains what looks like the actual response (markdown headers,
         # structured content), move it to response and keep only the thinking part
-        if reasoning and not response:
-            # Look for markers that indicate actual response content
-            import re
+        if reasoning and not raw_response:
             # Find where the actual response starts (markdown headers, "Based on", etc.)
             response_markers = [
                 r'^#{1,3}\s+',  # Markdown headers
@@ -624,9 +503,9 @@ class RichRenderer:
                 reasoning_lines = lines[:response_start_idx]
                 response_lines = lines[response_start_idx:]
                 reasoning = '\n'.join(reasoning_lines).strip()
-                response = '\n'.join(response_lines).strip()
+                raw_response = '\n'.join(response_lines).strip()
         
-        return response.strip(), reasoning.strip()
+        return raw_response.strip(), reasoning.strip()
     
     def stream_response(self, chunks: Generator[str, None, None]) -> str:
         """

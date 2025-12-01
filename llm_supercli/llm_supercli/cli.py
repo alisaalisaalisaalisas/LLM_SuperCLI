@@ -12,6 +12,7 @@ from typing import Any, Optional, Tuple
 from .config import get_config
 from .rich_ui import RichRenderer, InputHandler, get_theme_manager
 from .rich_ui.prompt_input import PromptInput
+from .rich_ui.message_state import ToolCallRecord
 from .command_system import CommandParser, get_command_registry
 from .history import get_session_store
 from .llm import get_provider_registry
@@ -626,8 +627,8 @@ class CLI:
     def _execute_tool_call(self, call: ParsedToolCall) -> str:
         """Execute a parsed tool call with consistent visual feedback.
         
-        Provides uniform display for tool execution regardless of the parsing
-        format used (Python-style, XML-style, etc.).
+        Uses MessageRenderer.display_tool_call() and display_tool_result() for
+        consistent, deduplicated tool display across all providers.
         
         Args:
             call: The parsed tool call to execute.
@@ -635,7 +636,7 @@ class CLI:
         Returns:
             A string describing the result for inclusion in the conversation.
             
-        Requirements: 4.1, 4.2, 4.3, 4.4
+        Requirements: 7.4 - Work with existing ToolExecutor and ToolParser components
         """
         tool_name = call.name
         arguments = call.arguments
@@ -646,58 +647,58 @@ class CLI:
             "create_directory", "run_command", "get_current_directory"
         }
         
-        # Tool icons for consistent visual feedback
-        tool_icons = {
-            "read_file": "📖",
-            "write_file": "📝",
-            "list_directory": "📂",
-            "create_directory": "📁",
-            "run_command": "⚡",
-            "get_current_directory": "📍",
-        }
-        icon = tool_icons.get(tool_name, "🔧")
-        
-        # Skip invalid/hallucinated tool names
-        if tool_name not in valid_tools:
-            self._renderer.print_tool_call(tool_name, "", icon)
-            self._renderer.print_tool_result(f"Unknown tool '{tool_name}'", success=False)
-            return f"Error: Unknown tool '{tool_name}'"
-        
         # Normalize arguments - handle both positional (arg0, arg1) and named arguments
         normalized_args = self._normalize_tool_arguments(tool_name, arguments)
         
-        # Display tool execution header
-        args_preview = self._format_args_preview(normalized_args)
-        self._renderer.print_tool_call(tool_name, args_preview.lstrip(": "), icon)
+        # Create a unique ID for deduplication (hash of name + sorted args)
+        import hashlib
+        args_str = str(sorted(normalized_args.items()))
+        tool_id = hashlib.md5(f"{tool_name}:{args_str}".encode()).hexdigest()[:12]
+        
+        # Create ToolCallRecord for MessageRenderer
+        tool_record = ToolCallRecord(
+            id=tool_id,
+            name=tool_name,
+            arguments=normalized_args,
+            result=None,
+            success=True,
+            displayed=False
+        )
+        
+        # Skip invalid/hallucinated tool names
+        if tool_name not in valid_tools:
+            tool_record.result = f"Unknown tool '{tool_name}'"
+            tool_record.success = False
+            # Use MessageRenderer for display
+            self._renderer._message_renderer.display_tool_call(tool_record)
+            self._renderer._message_renderer.display_tool_result(tool_record)
+            return f"Error: Unknown tool '{tool_name}'"
+        
+        # Display tool call header using MessageRenderer
+        self._renderer._message_renderer.display_tool_call(tool_record)
         
         try:
             result = self._tools.execute(tool_name, normalized_args)
             
             # Check if the tool executor returned an error
             if result.startswith("Error:"):
-                self._renderer.print_tool_result(result, success=False)
+                tool_record.result = result
+                tool_record.success = False
+                self._renderer._message_renderer.display_tool_result(tool_record)
                 return f"{tool_name}: {result}"
             
-            # Display success with brief preview (shorter for file reads)
-            if tool_name == "read_file":
-                # For file reads, just show file info, not content
-                lines = result.count('\n') + 1
-                chars = len(result)
-                preview = f"Read {chars} chars, {lines} lines"
-            elif tool_name == "list_directory":
-                # For directory listing, show count
-                items = result.strip().split('\n') if result.strip() else []
-                preview = f"Found {len(items)} items"
-            else:
-                preview = result[:80] + "..." if len(result) > 80 else result
-            
-            self._renderer.print_tool_result(preview, success=True, max_preview=100)
+            # Set successful result
+            tool_record.result = result
+            tool_record.success = True
+            self._renderer._message_renderer.display_tool_result(tool_record)
             
             return f"{tool_name}: {result}"
             
         except Exception as e:
             # Display failure with error message
-            self._renderer.print_tool_result(f"Error: {e}", success=False)
+            tool_record.result = str(e)
+            tool_record.success = False
+            self._renderer._message_renderer.display_tool_result(tool_record)
             return f"{tool_name} error: {e}"
     
     def _normalize_tool_arguments(self, tool_name: str, arguments: dict) -> dict:
@@ -829,7 +830,12 @@ class CLI:
                     self._renderer.stop_live_stream()
                     messages.append(message)
                     
-                    for tool_call in tool_calls:
+                    # Add visual header if multiple tool calls
+                    # Requirements: 2.2 - Display each tool call in deterministic order with visual separators
+                    if len(tool_calls) > 1:
+                        self._renderer.print_tool_section_header(len(tool_calls))
+                    
+                    for i, tool_call in enumerate(tool_calls):
                         func = tool_call.get("function", {})
                         tool_name = func.get("name", "")
                         tool_id = tool_call.get("id", "")
@@ -839,15 +845,40 @@ class CLI:
                         except json.JSONDecodeError:
                             args = {}
                         
-                        self._renderer.print(f"[dim]> Using tool: {tool_name}({args})[/dim]")
-                        result = self._tools.execute(tool_name, args)
-                        preview = result[:200] + "..." if len(result) > 200 else result
-                        self._renderer.print(f"[dim]> Result: {preview}[/dim]\n")
+                        # Create ToolCallRecord for MessageRenderer
+                        # Requirements: 7.4 - Work with existing ToolExecutor
+                        tool_record = ToolCallRecord(
+                            id=tool_id,
+                            name=tool_name,
+                            arguments=args,
+                            result=None,
+                            success=True,
+                            displayed=False
+                        )
+                        
+                        # Display tool call using MessageRenderer
+                        self._renderer._message_renderer.display_tool_call(tool_record)
+                        
+                        # Execute the tool
+                        try:
+                            result = self._tools.execute(tool_name, args)
+                            tool_record.result = result
+                            tool_record.success = not result.startswith("Error:")
+                        except Exception as e:
+                            tool_record.result = str(e)
+                            tool_record.success = False
+                        
+                        # Display tool result using MessageRenderer
+                        self._renderer._message_renderer.display_tool_result(tool_record)
+                        
+                        # Add visual separator between multiple tool calls
+                        if len(tool_calls) > 1 and i < len(tool_calls) - 1:
+                            self._renderer.print_tool_separator()
                         
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tool_id,
-                            "content": result
+                            "content": tool_record.result or ""
                         })
                     continue
                 
