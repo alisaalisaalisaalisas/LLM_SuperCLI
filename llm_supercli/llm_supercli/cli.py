@@ -193,12 +193,6 @@ class CLI:
         if self._layout_manager.should_show_element("hints_bar"):
             self._hints_bar.print(centered=True)
         
-        # Print startup tips (compact in narrow terminals)
-        if not self._layout_manager.is_compact_mode:
-            self._renderer.print("[dim]Tips:[/dim]")
-            self._renderer.print("[dim]1. Ask questions, edit files, or run commands[/dim]")
-            self._renderer.print("[dim]2. Use @file to include file contents[/dim]")
-            self._renderer.print("[dim]3. Use /help for more information[/dim]")
         self._renderer.print()
         
         while self._running:
@@ -361,14 +355,19 @@ class CLI:
         mode_slug = self.current_mode
         mode_config = self._prompt_builder.mode_manager.get(mode_slug)
         
+        # Get context percentage for display
+        context_percent = self._status_bar.data.context_percent
+        context_style = "green" if context_percent < 50 else "yellow" if context_percent < 80 else "red"
+        context_display = f" | [{context_style}]{context_percent}%[/{context_style}]"
+        
         # In compact mode, show abbreviated info
         if self._layout_manager.is_compact_mode:
             # Abbreviated display for narrow terminals
             mode_display = f" | [yellow]{mode_config.icon}[/yellow]"
-            self._renderer.print(f"[cyan]{provider[:4]}[/cyan]/[green]{model[:10]}[/green]{mode_display}")
+            self._renderer.print(f"[cyan]{provider[:4]}[/cyan]/[green]{model[:10]}[/green]{mode_display}{context_display}")
         else:
             mode_display = f" | [yellow]{mode_config.icon} {mode_config.name}[/yellow]"
-            self._renderer.print(f"[cyan]{provider}[/cyan] / [green]{model}[/green]{tier}{mode_display}")
+            self._renderer.print(f"[cyan]{provider}[/cyan] / [green]{model}[/green]{tier}{mode_display}{context_display}")
         
         return f"[{short_path}] > "
     
@@ -490,9 +489,7 @@ class CLI:
             else:
                 await self._get_response_with_tools(provider, context, session)
             
-            # Render status footer after response completion
-            # Requirements: 8.1 - Add status footer rendering after response completion
-            self._tool_action_mapper.render_status_footer(is_free_tier=is_free_tier)
+            # Status footer removed - time/free info now shown in prompt line
             
             # Update status bar after response (context may have changed)
             # Requirements: 1.4 - Update context percentage in real-time
@@ -629,12 +626,12 @@ class CLI:
             # Stop live stream and get final content
             response_content, reasoning_content = self._renderer.stop_live_stream()
             
-            # Display final reasoning box if any
+            # Display final reasoning box if any (only if not already printed)
             if reasoning_content:
                 self._renderer.print_reasoning(reasoning_content)
             
-            # Display response
-            if response_content:
+            # Display response only if not already printed during streaming
+            if response_content and not self._renderer.was_response_printed():
                 self._renderer.print_message(response_content, role="assistant")
             
             # Save to session
@@ -739,9 +736,16 @@ class CLI:
             display_content = re.sub(r'<\w+\([^)]*\)>', '', display_content)
             # Remove Python-style: tool_name(args) - including inside code blocks
             display_content = re.sub(r'\b(read_file|write_file|list_directory|create_directory|run_command|get_current_directory)\s*\([^)]*\)', '', display_content)
+            # Remove malformed XML closing tags (Qwen outputs these)
+            display_content = re.sub(r'<\s*/\s*(read_file|write_file|list_directory|create_directory|run_command|get_current_directory)\s*>', '', display_content)
+            # Remove standalone closing/opening tags
+            display_content = re.sub(r'</(read_file|write_file|list_directory|create_directory|run_command|get_current_directory)>', '', display_content)
+            display_content = re.sub(r'<(read_file|write_file|list_directory|create_directory|run_command|get_current_directory)>', '', display_content)
             # Remove empty code blocks that contained only tool calls
             display_content = re.sub(r'```\s*```', '', display_content)
             display_content = re.sub(r'```\s*\n?\s*```', '', display_content)
+            # Remove lines that are just "< " artifacts
+            display_content = re.sub(r'^\s*<\s*$', '', display_content, flags=re.MULTILINE)
             display_content = display_content.strip()
             
             # Execute parsed tool calls with consistent visual feedback
@@ -777,6 +781,9 @@ class CLI:
             final_content = re.sub(r'</?think>?', '', final_content).strip()
             # Also clean any remaining tool-like patterns
             final_content = re.sub(r'<[^>]*\([^)]*\)[^>]*>', '', final_content).strip()
+            # Clean malformed closing tags
+            final_content = re.sub(r'<\s*/\s*\w+\s*>', '', final_content).strip()
+            final_content = re.sub(r'^\s*<\s*$', '', final_content, flags=re.MULTILINE).strip()
             
             # If response is empty but we have reasoning, use reasoning as the response
             # (Qwen sometimes puts the actual response in reasoning_content)
@@ -784,6 +791,8 @@ class CLI:
                 final_content = reasoning_content.strip()
                 final_content = re.sub(r'</?think>?', '', final_content).strip()
                 final_content = re.sub(r'<[^>]*\([^)]*\)[^>]*>', '', final_content).strip()
+                final_content = re.sub(r'<\s*/\s*\w+\s*>', '', final_content).strip()
+                final_content = re.sub(r'^\s*<\s*$', '', final_content, flags=re.MULTILINE).strip()
             
             # If still no content after tool calls, prompt for a summary
             if not final_content and iteration >= 0:
@@ -802,9 +811,10 @@ class CLI:
                 # No tools and no content - just break
                 break
             
-            # Print final response panel (transient=True means live content was removed)
-            if final_content:
+            # Print final response panel only if not already printed during streaming
+            if final_content and not self._renderer.was_response_printed():
                 self._renderer.print_message(final_content, role="assistant")
+            if final_content:
                 session.add_message("assistant", final_content)
             break
     
@@ -1055,9 +1065,10 @@ class CLI:
                     response_content = reasoning_content
                     reasoning_content = ""
                 
-                # Print final response panel (transient=True means live content was removed)
-                if response_content:
+                # Print final response panel only if not already printed during streaming
+                if response_content and not self._renderer.was_response_printed():
                     self._renderer.print_message(response_content, role="assistant")
+                if response_content:
                     session.add_message("assistant", response_content, tokens=len(response_content)//4)
                     self._sessions.save_session(session)
                     

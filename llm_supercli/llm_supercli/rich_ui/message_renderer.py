@@ -83,6 +83,7 @@ class MessageRenderer:
         self._live: Optional[Live] = None
         self._static_content: list[RenderableType] = []
         self._in_thinking = False  # Track if inside <think> tags
+        self._response_printed = False  # Track if final response was already printed
 
     @property
     def phase(self) -> MessagePhase:
@@ -122,6 +123,7 @@ class MessageRenderer:
         self._buffer.clear()
         self._static_content.clear()
         self._in_thinking = False
+        self._response_printed = False
         
         # Build thinking indicator with cancel hint (Requirements 7.1, 7.2)
         thinking_text = Text()
@@ -287,19 +289,24 @@ class MessageRenderer:
         # Filter tool syntax from response for clean return
         filtered_response = filter_tool_syntax(response) if response else ""
         
-        # Finalize any pending displays
-        if self._phase == MessagePhase.REASONING and reasoning:
-            self._finalize_reasoning_panel()
-        elif self._phase == MessagePhase.RESPONDING and response:
-            self._finalize_response_panel()
-        
-        # Clean up live display
+        # Clean up live display FIRST to clear streaming content
         self._cleanup_live()
+        
+        # Finalize any pending displays (only if not already printed)
+        if self._phase == MessagePhase.REASONING and reasoning and not self._response_printed:
+            self._finalize_reasoning_panel()
+        elif self._phase == MessagePhase.RESPONDING and response and not self._response_printed:
+            self._finalize_response_panel()
         
         # Transition to COMPLETE
         self._phase = MessagePhase.COMPLETE
         
         return filtered_response, reasoning
+    
+    @property
+    def response_already_printed(self) -> bool:
+        """Check if the response was already printed during finalization."""
+        return self._response_printed
     
     def abort(self, error: Optional[str] = None) -> Tuple[str, str]:
         """Abort current message, optionally show error.
@@ -346,6 +353,7 @@ class MessageRenderer:
         self._static_content.clear()
         self._phase = MessagePhase.IDLE
         self._in_thinking = False
+        self._response_printed = False
     
     # -------------------------------------------------------------------------
     # Private helper methods
@@ -377,18 +385,13 @@ class MessageRenderer:
         if not display_text:
             return
         
-        # Use yellow-bordered panel during streaming (Requirement 5.1)
+        # Display reasoning without border
         cursor = "▌"
-        content_with_cursor = Text(f"{display_text}{cursor}", style="dim italic")
-        
-        panel = Panel(
-            content_with_cursor,
-            title="[yellow]💭 Reasoning[/yellow]",
-            title_align="left",
-            border_style="yellow",
-            padding=(0, 1),
-        )
-        self._live.update(panel)
+        content = Text()
+        content.append("💭 ", style="yellow")
+        content.append(display_text, style="dim italic")
+        content.append(cursor, style="dim")
+        self._live.update(content)
     
     def _update_response_display(self) -> None:
         """Update the live display with current response content.
@@ -398,31 +401,23 @@ class MessageRenderer:
         
         Requirements: 4.2, 4.3 - Assistant panel with cyan border and markdown
         """
-        if not self._live or not self._buffer.response:
+        if not self._live:
             return
         
         # Filter tool syntax from display
-        display_text = filter_tool_syntax(self._buffer.response)
+        display_text = filter_tool_syntax(self._buffer.response) if self._buffer.response else ""
         if not display_text.strip():
+            # Show minimal placeholder during streaming
+            self._live.update(Text("▌", style="dim"))
             return
         
-        # Use cyan-bordered panel during streaming (Requirement 4.2)
+        # Display response without border
         cursor = "▌"
-        
-        # Use Markdown rendering for assistant responses (Requirement 4.3)
-        # Add cursor at the end to indicate streaming
-        content_with_cursor = Text()
-        content_with_cursor.append(display_text)
-        content_with_cursor.append(cursor, style="dim")
-        
-        panel = Panel(
-            content_with_cursor,
-            title="[bold cyan]🤖 Assistant[/bold cyan]",
-            title_align="left",
-            border_style="cyan",
-            padding=(0, 1),
-        )
-        self._live.update(panel)
+        content = Text()
+        content.append("🤖 ", style="cyan")
+        content.append(display_text)
+        content.append(cursor, style="dim")
+        self._live.update(content)
     
     def _finalize_reasoning_panel(self) -> None:
         """Finalize reasoning display.
@@ -438,17 +433,14 @@ class MessageRenderer:
         # Stop live display
         self._cleanup_live()
         
-        # Print reasoning as static panel with yellow border (Requirement 5.1)
+        # Print reasoning without border
         display_text = self._buffer.reasoning.strip()
         if display_text:
-            panel = Panel(
-                Text(display_text, style="dim italic"),
-                title="[yellow]💭 Reasoning[/yellow]",
-                title_align="left",
-                border_style="yellow",
-                padding=(0, 1),
-            )
-            self._console.print(panel)
+            content = Text()
+            content.append("💭 ", style="yellow")
+            content.append(display_text, style="dim italic")
+            self._console.print(content)
+            self._console.print()  # Add spacing
         
         # Restart live display for response streaming
         self._live = Live(
@@ -463,14 +455,24 @@ class MessageRenderer:
     def _finalize_response_panel(self) -> None:
         """Finalize response display.
         
-        Just stop the live display - the CLI will handle printing the final
-        response panel to avoid duplication.
+        Print the final response panel and stop the live display.
+        Sets a flag to indicate the response was already printed.
         """
+        # Stop live display first to clear streaming content
+        self._cleanup_live()
+        
         if not self._buffer.response:
             return
         
-        # Stop live display - CLI will print the final response
-        self._cleanup_live()
+        # Print final response without border
+        display_text = filter_tool_syntax(self._buffer.response)
+        if display_text.strip():
+            # Mark that we've printed the final response BEFORE printing
+            self._response_printed = True
+            
+            self._console.print(Text("🤖 ", style="bold cyan"), end="")
+            self._console.print(Markdown(display_text))
+            self._console.print()  # Add spacing
     
     def _format_tool_header(self, call: ToolCallRecord) -> RenderableType:
         """Format a tool call header for display.

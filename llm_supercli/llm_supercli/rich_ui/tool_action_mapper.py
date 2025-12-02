@@ -162,6 +162,9 @@ class ToolActionMapper:
         # Handle file read operations
         if tool_name == "read_file":
             path = arguments.get("path", "")
+            # Skip rendering if no valid path provided
+            if not path:
+                return
             failed = [] if success else [path]
             files = [path] if success else []
             self._renderer.render_read_files(files=files, failed=failed)
@@ -170,6 +173,10 @@ class ToolActionMapper:
             paths = arguments.get("paths", [])
             if isinstance(paths, str):
                 paths = [paths]
+            # Filter out empty paths
+            paths = [p for p in paths if p]
+            if not paths:
+                return
             failed = [] if success else paths
             files = paths if success else []
             self._renderer.render_read_files(files=files, failed=failed)
@@ -184,6 +191,9 @@ class ToolActionMapper:
         # Handle file write operations - detect create vs update
         elif tool_name == "write_file":
             path = arguments.get("path", "")
+            # Skip rendering if no valid path provided
+            if not path:
+                return
             content = arguments.get("content", "")
             
             # Check if file existed before write (for create vs update)
@@ -203,12 +213,15 @@ class ToolActionMapper:
         # Handle directory listing (treat as file read)
         elif tool_name == "list_directory":
             path = arguments.get("path", ".")
-            self._renderer.render_read_files(files=[f"📁 {path}"], failed=[])
+            self._renderer.render_read_files(files=[f"📁  {path}"], failed=[])
         
         # Handle directory creation
         elif tool_name == "create_directory":
             path = arguments.get("path", "")
-            self._renderer.render_file_created(filename=f"📁 {path}")
+            # Skip rendering if no valid path provided
+            if not path:
+                return
+            self._renderer.render_file_created(filename=f"📁  {path}")
     
     def render_tool_action_before(
         self,
@@ -264,6 +277,9 @@ class ToolActionMapper:
         # Handle file read operations
         if tool_name == "read_file":
             path = arguments.get("path", "")
+            # Skip rendering if no valid path provided
+            if not path:
+                return
             failed = [] if success else [path]
             files = [path] if success else []
             self._renderer.render_read_files(files=files, failed=failed)
@@ -272,6 +288,10 @@ class ToolActionMapper:
             paths = arguments.get("paths", [])
             if isinstance(paths, str):
                 paths = [paths]
+            # Filter out empty paths
+            paths = [p for p in paths if p]
+            if not paths:
+                return
             failed = [] if success else paths
             files = paths if success else []
             self._renderer.render_read_files(files=files, failed=failed)
@@ -285,6 +305,9 @@ class ToolActionMapper:
         # Handle file write operations - use captured state for create vs update
         elif tool_name == "write_file":
             path = arguments.get("path", "")
+            # Skip rendering if no valid path provided
+            if not path:
+                return
             content = arguments.get("content", "")
             file_existed = state.get("file_existed", False)
             
@@ -298,12 +321,15 @@ class ToolActionMapper:
         # Handle directory listing
         elif tool_name == "list_directory":
             path = arguments.get("path", ".")
-            self._renderer.render_read_files(files=[f"📁 {path}"], failed=[])
+            self._renderer.render_read_files(files=[f"📁  {path}"], failed=[])
         
         # Handle directory creation
         elif tool_name == "create_directory":
             path = arguments.get("path", "")
-            self._renderer.render_file_created(filename=f"📁 {path}")
+            # Skip rendering if no valid path provided
+            if not path:
+                return
+            self._renderer.render_file_created(filename=f"📁  {path}")
     
     def render_status_footer(
         self,

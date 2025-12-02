@@ -213,10 +213,28 @@ def filter_tool_syntax(
     python_multiline_pattern = rf'({tool_pattern})\s*\(.*?\)'
     result = re.sub(python_multiline_pattern, '', result, flags=re.DOTALL)
     
+    # Pattern 5: Malformed XML closing tags (Qwen sometimes outputs these)
+    # e.g., < </list_directory> or </ list_directory>
+    malformed_close_pattern = rf'<\s*/\s*({tool_pattern})\s*>'
+    result = re.sub(malformed_close_pattern, '', result)
+    
+    # Pattern 6: Standalone closing tags
+    # e.g., </read_file> or </list_directory>
+    standalone_close_pattern = rf'</({tool_pattern})>'
+    result = re.sub(standalone_close_pattern, '', result)
+    
+    # Pattern 7: Opening tags without parentheses
+    # e.g., <read_file> or <list_directory>
+    standalone_open_pattern = rf'<({tool_pattern})>'
+    result = re.sub(standalone_open_pattern, '', result)
+    
     # Clean up artifacts
     # Remove empty code blocks that might remain
     result = re.sub(r'```\s*```', '', result)
     result = re.sub(r'```\s*\n?\s*```', '', result)
+    
+    # Remove lines that are just "< " or similar artifacts
+    result = re.sub(r'^\s*<\s*$', '', result, flags=re.MULTILINE)
     
     # Normalize multiple newlines
     result = re.sub(r'\n{3,}', '\n\n', result)

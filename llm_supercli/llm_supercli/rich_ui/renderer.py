@@ -147,21 +147,13 @@ class RichRenderer:
         from .layout_manager import get_layout_manager
         layout = get_layout_manager()
         
-        # Role-specific icons (Requirements 4.1, 4.2)
+        # Role-specific icons and styles
         icon_map = {
             "user": "👤",
             "assistant": "🤖",
             "system": "⚙️",
         }
         
-        # Role-specific border styles (Requirements 4.1, 4.2)
-        border_style_map = {
-            "user": "dim",
-            "assistant": "cyan",  # Primary accent color
-            "system": "dim",
-        }
-        
-        # Role-specific title styles
         title_style_map = {
             "user": "dim",
             "assistant": "bold cyan",
@@ -169,7 +161,6 @@ class RichRenderer:
         }
         
         icon = icon_map.get(role, "")
-        border_style = border_style_map.get(role, "dim")
         title_style = title_style_map.get(role, "dim")
         
         # Build header with icon and role name
@@ -177,38 +168,17 @@ class RichRenderer:
         if show_timestamp and timestamp:
             header += f" [{timestamp}]"
         
-        # Render content based on role (Requirement 4.3 - markdown for assistant)
+        # Print header without border
+        self._console.print(f"[{title_style}]{header}[/{title_style}]")
+        
+        # Render content based on role (markdown for assistant)
         if role == "assistant":
-            # Use Markdown rendering for assistant messages
-            rendered_content = Markdown(content)
+            self._console.print(Markdown(content))
         else:
-            # Use plain Text for user/system messages
-            rendered_content = Text(content)
+            self._console.print(Text(content))
         
-        # Get responsive padding from layout manager (Requirements 9.2, 9.3)
-        padding = layout.get_panel_padding()
-        
-        # Determine panel width for wide terminals
-        panel_width = None
-        if layout.is_wide_terminal():
-            panel_width = layout.get_panel_width()
-        
-        # Create panel with role-specific styling (Requirement 4.4 - text wrapping)
-        panel = Panel(
-            rendered_content,
-            title=f"[{title_style}]{header}[/{title_style}]",
-            title_align="left",
-            border_style=border_style,
-            padding=padding,
-            width=panel_width
-        )
-        
-        # For wide terminals, center the panel
-        if layout.is_wide_terminal():
-            wrapped = layout.wrap_for_width(panel)
-            self._console.print(wrapped)
-        else:
-            self._console.print(panel)
+        # Add spacing
+        self._console.print()
     
     def print_reasoning(self, content: str) -> None:
         """
@@ -237,22 +207,10 @@ class RichRenderer:
         if layout.is_wide_terminal():
             panel_width = layout.get_panel_width()
         
-        # Use yellow border and header for reasoning (Requirement 5.1)
-        panel = Panel(
-            Text(content, style="dim italic"),
-            title="[yellow]💭 Reasoning[/yellow]",
-            title_align="left",
-            border_style="yellow",
-            padding=padding,
-            width=panel_width
-        )
-        
-        # For wide terminals, center the panel
-        if layout.is_wide_terminal():
-            wrapped = layout.wrap_for_width(panel)
-            self._console.print(wrapped)
-        else:
-            self._console.print(panel)
+        # Print reasoning without border
+        self._console.print(Text("💭 Reasoning", style="yellow"))
+        self._console.print(Text(content, style="dim italic"))
+        self._console.print()
     
     def print_markdown(self, content: str) -> None:
         """
@@ -663,6 +621,14 @@ class RichRenderer:
                 raw_response = '\n'.join(response_lines).strip()
         
         return raw_response.strip(), reasoning.strip()
+    
+    def was_response_printed(self) -> bool:
+        """Check if the response was already printed during streaming finalization.
+        
+        Returns:
+            True if the response panel was already printed, False otherwise
+        """
+        return self._message_renderer.response_already_printed
     
     def stream_response(self, chunks: Generator[str, None, None]) -> str:
         """

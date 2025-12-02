@@ -176,13 +176,13 @@ class ActionRenderer:
         # Build title with icon (extra space for better visual separation)
         title = f"{style.icon}  {title_text}"
         
-        return Panel(
-            content,
-            title=f"[{style.title_style}]{title}[/{style.title_style}]",
-            title_align="left",
-            border_style=style.border_color,
-            padding=(0, 1)
-        )
+        # Return content without border - just icon + title + content
+        from rich.console import Group
+        header = Text()
+        header.append(f"{style.icon} ", style=style.title_style)
+        header.append(title_text, style=style.title_style)
+        
+        return Group(header, content)
     
     def _render_fallback(self, action: Action) -> None:
         """
@@ -356,21 +356,12 @@ class ActionRenderer:
         # Get the thinking style
         style = get_card_style(ActionType.THINKING)
         
-        # Create spinner with the thinking message
+        # Create spinner with the thinking message (no border)
         spinner = Spinner("dots", text=Text(f" {message}", style="dim italic"))
         
-        # Create the panel with spinner
-        panel = Panel(
-            spinner,
-            title=f"[{style.title_style}]{style.icon}  {style.title_template}[/{style.title_style}]",
-            title_align="left",
-            border_style=style.border_color,
-            padding=(0, 1)
-        )
-        
-        # Start Live display for animation
+        # Start Live display for animation (no panel/border)
         self._live = Live(
-            panel,
+            spinner,
             console=self._console,
             refresh_per_second=10,
             transient=True  # Remove when stopped for smooth transition
@@ -454,8 +445,10 @@ class ActionRenderer:
         # Handle successful files with truncation
         # Requirements: 1.2 - List each filename on a separate line
         # Requirements: 1.3 - Show first N files and indicate remaining count
-        files_to_show = action.files[:self._max_files]
-        remaining_count = len(action.files) - self._max_files
+        # Filter out empty file paths
+        valid_files = [f for f in action.files if f]
+        files_to_show = valid_files[:self._max_files]
+        remaining_count = len(valid_files) - self._max_files
         
         for i, filepath in enumerate(files_to_show):
             if i > 0:
@@ -470,8 +463,10 @@ class ActionRenderer:
         
         # Handle failed files with error indicator
         # Requirements: 1.4 - Display failed files with error indicator
-        if action.failed_files:
-            for filepath in action.failed_files:
+        # Filter out empty file paths
+        valid_failed = [f for f in action.failed_files if f]
+        if valid_failed:
+            for filepath in valid_failed:
                 if content.plain:  # Add newline if there's already content
                     content.append("\n")
                 content.append("  ✗ ", style="red bold")
@@ -828,15 +823,12 @@ class ActionRenderer:
                     str_value = str_value[:57] + "..."
                 content.append(str_value, style="dim")
         
-        # Create panel with tool icon
-        panel = Panel(
-            content,
-            title=f"[bold cyan]🔧  {tool_name}[/bold cyan]",
-            title_align="left",
-            border_style="cyan",
-            padding=(0, 1)
-        )
-        self._console.print(panel)
+        # Print tool call without border
+        header = Text()
+        header.append(f"🔧 {tool_name}", style="bold cyan")
+        self._console.print(header)
+        if content.plain.strip():
+            self._console.print(content)
 
     def render_tool_success(
         self,

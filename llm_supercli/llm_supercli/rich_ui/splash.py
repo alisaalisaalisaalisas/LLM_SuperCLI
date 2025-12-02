@@ -13,31 +13,14 @@ import shutil
 
 from ..constants import APP_VERSION
 from .theme import get_theme_manager
+# Import banners from ascii.py to avoid duplication
+from .ascii import MAIN_BANNER as FULL_BANNER, SMALL_BANNER, MINI_BANNER
 
 # Compact threshold for small banner variant (Req 10.2)
 COMPACT_WIDTH_THRESHOLD = 80
 
-# Full ASCII banner for wide terminals (>= 80 cols)
-FULL_BANNER = r"""
- ██╗     ██╗     ███╗   ███╗    ███████╗██╗   ██╗██████╗ ███████╗██████╗  ██████╗██╗     ██╗
- ██║     ██║     ████╗ ████║    ██╔════╝██║   ██║██╔══██╗██╔════╝██╔══██╗██╔════╝██║     ██║
- ██║     ██║     ██╔████╔██║    ███████╗██║   ██║██████╔╝█████╗  ██████╔╝██║     ██║     ██║
- ██║     ██║     ██║╚██╔╝██║    ╚════██║██║   ██║██╔═══╝ ██╔══╝  ██╔══██╗██║     ██║     ██║
- ███████╗███████╗██║ ╚═╝ ██║    ███████║╚██████╔╝██║     ███████╗██║  ██║╚██████╗███████╗██║
- ╚══════╝╚══════╝╚═╝     ╚═╝    ╚══════╝ ╚═════╝ ╚═╝     ╚══════╝╚═╝  ╚═╝ ╚═════╝╚══════╝╚═╝
-"""
-
-# Small ASCII banner for narrow terminals (< 80 cols) - Req 10.2
-SMALL_BANNER = r"""
- ╔═╗╦ ╦╔═╗╔═╗╦═╗╔═╗╦  ╦
- ╚═╗║ ║╠═╝║╣ ╠╦╝║  ║  ║
- ╚═╝╚═╝╩  ╚═╝╩╚═╚═╝╩═╝╩
-"""
-
 # Minimal banner for very narrow terminals (< 60 cols)
-MINIMAL_BANNER = r"""
-SuperCLI
-"""
+MINIMAL_BANNER = "SuperCLI"
 
 # Startup instructions shown below banner - Req 10.3
 STARTUP_INSTRUCTIONS = """
@@ -195,22 +178,10 @@ def print_splash(console: Console = None) -> None:
     console.print(Align.center(version_text))
     console.print()
     
-    # Print startup instructions (Req 10.3)
+    # Print startup instructions (Req 10.3) - no border, just centered text
     instructions = _get_instructions_for_width(width)
     instructions_text = Text(instructions.strip(), style=muted_color)
-    
-    if width >= COMPACT_WIDTH_THRESHOLD:
-        # Full instructions in a subtle panel for wide terminals
-        console.print(
-            Panel(
-                Align.center(instructions_text),
-                border_style=muted_color,
-                padding=(0, 2),
-            )
-        )
-    else:
-        # Compact instructions without panel for narrow terminals
-        console.print(Align.center(instructions_text))
+    console.print(Align.center(instructions_text))
     
     console.print()
 
