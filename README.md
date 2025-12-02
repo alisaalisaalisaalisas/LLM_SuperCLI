@@ -6,9 +6,10 @@
 
 **A powerful multi-provider LLM command line interface**
 
-[![Version](https://img.shields.io/badge/version-1.0.18-blue.svg)](https://github.com/llm-supercli/llm-supercli)
+[![Version](https://img.shields.io/badge/version-1.0.21-blue.svg)](https://github.com/alisaalisaalisaalisas/LLM_SuperCLI)
 [![Python](https://img.shields.io/badge/python-3.10+-green.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-orange.svg)](LICENSE)
+[![GitHub](https://img.shields.io/badge/GitHub-alisaalisaalisaalisas%2FLLM__SuperCLI-blue?logo=github)](https://github.com/alisaalisaalisaalisas/LLM_SuperCLI)
 
 [Features](#features) • [Installation](#installation) • [Quick Start](#quick-start) • [Providers](#providers) • [Commands](#commands)
 
@@ -25,10 +26,17 @@
 - **Session Management** - Save, load, and manage conversation sessions
 - **Tool Support** - Built-in file operations, shell commands, and directory navigation
 - **MCP Integration** - Model Context Protocol server connections
+- **Multiple Modes** - Code, chat, and other operational modes
 
 ---
 
 ## Installation
+
+### Via npm (Recommended)
+
+```bash
+npm install -g llm-supercli
+```
 
 ### Via pip
 
@@ -36,15 +44,11 @@
 pip install llm-supercli
 ```
 
-### Via npm (Recommended)
-
-```bash
-npm install -g llm-supercli
 ### From Source
 
 ```bash
-git clone https://github.com/llm-supercli/llm-supercli.git
-cd llm-supercli
+git clone https://github.com/alisaalisaalisaalisas/LLM_SuperCLI.git
+cd LLM_SuperCLI
 pip install -e .
 ```
 
@@ -66,7 +70,7 @@ llm-supercli
 
 | Provider | Models | Auth | Cost |
 |----------|--------|------|------|
-| **Qwen** | qwen3-coder-plus, qwen3-vl-plus | OAuth | Free (2K req/day) |
+| **Qwen** | coder-model, vision-model | OAuth | Free (2K req/day) |
 | **Gemini** | gemini-2.5-pro, gemini-2.5-flash, gemini-2.5-flash-lite | OAuth | Free |
 | **Groq** | llama-3.3-70b, llama-3.1-8b, mixtral-8x7b, gemma2-9b | API Key | Free tier |
 | **Ollama** | llama3.2, mistral, codellama, phi3 | Local | Free |
@@ -151,6 +155,31 @@ Or set via CLI:
 | `/compress` | Compress conversation context |
 | `/rewind` | Rewind to previous message |
 | `/quit` | Exit the CLI |
+| `/update` | Check for updates and install |
+
+---
+
+## Updating
+
+### From within the CLI
+
+```bash
+/update
+```
+
+This will check for new versions and prompt you to update if available.
+
+### Manual update
+
+```bash
+# npm installation
+npm update -g llm-supercli
+
+# pip installation
+pip install --upgrade llm-supercli
+```
+
+After updating, restart the CLI to use the new version.
 
 ---
 
@@ -217,8 +246,8 @@ Access interactive settings menu:
 
 | Model | Context | Max Output | Features |
 |-------|---------|------------|----------|
-| qwen3-coder-plus | 128K tokens | 8K tokens | text, code |
-| qwen3-vl-plus | 7.5K tokens | 2K tokens | text, code, vision |
+| coder-model | 128K tokens | 8K tokens | text, code |
+| vision-model | 7.5K tokens | 2K tokens | text, code, vision |
 
 ---
 
@@ -231,13 +260,21 @@ Access interactive settings menu:
 - httpx >= 0.25.0
 - click >= 8.0.0
 - prompt_toolkit >= 3.0.0
-- pyfiglet >= 0.7
+- packaging >= 21.0
 
 ---
 
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
+
+---
+
+## Links
+
+- **GitHub:** https://github.com/alisaalisaalisaalisas/LLM_SuperCLI
+- **npm:** https://www.npmjs.com/package/llm-supercli
+- **PyPI:** https://pypi.org/project/llm-supercli/
 
 ---
 

@@ -13,7 +13,7 @@
 
 **A powerful multi-provider LLM command line interface**
 
-[![Version](https://img.shields.io/npm/v/llm-supercli.svg)](https://www.npmjs.com/package/llm-supercli)
+[![Version](https://img.shields.io/badge/version-1.0.21-blue.svg)](https://github.com/alisaalisaalisaalisas/LLM_SuperCLI)
 [![Python](https://img.shields.io/badge/python-3.10+-green.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-orange.svg)](LICENSE)
 
@@ -26,12 +26,13 @@
 ## Features
 
 - **Multi-Provider Support** - Groq, OpenRouter, Together AI, HuggingFace, Ollama, Gemini, Qwen
-- **Free Tiers Available** - Gemini and Qwen offer free OAuth authentication
-- **Interactive UI** - Rich terminal with autocomplete, syntax highlighting, and interactive menus
-- **Streaming Responses** - Real-time token streaming for all providers
+- **Free Tiers Available** - Gemini, Qwen, and Ollama work without API keys
+- **Interactive UI** - Rich terminal with autocomplete, syntax highlighting, and live streaming
+- **Streaming Responses** - Real-time token streaming with reasoning display
 - **Session Management** - Save, load, and manage conversation sessions
 - **Tool Support** - Built-in file operations, shell commands, and directory navigation
 - **MCP Integration** - Model Context Protocol server connections
+- **Multiple Modes** - Code, chat, and other operational modes
 
 ---
 
@@ -52,8 +53,8 @@ pip install llm-supercli
 ### From Source
 
 ```bash
-git clone https://github.com/llm-supercli/llm-supercli.git
-cd llm-supercli
+git clone https://github.com/alisaalisaalisaalisas/LLM_SuperCLI.git
+cd LLM_SuperCLI
 pip install -e .
 ```
 
@@ -75,13 +76,13 @@ llm-supercli
 
 | Provider | Models | Auth | Cost |
 |----------|--------|------|------|
-| **Qwen** | coder-model, vision-model | OAuth | Free |
-| **Gemini** | gemini-2.5-pro, gemini-2.5-flash | OAuth | Free |
-| **Groq** | llama-3.3-70b, mixtral-8x7b, gemma2-9b | API Key | Free tier |
+| **Qwen** | coder-model, vision-model | OAuth | Free (2K req/day) |
+| **Gemini** | gemini-2.5-pro, gemini-2.5-flash, gemini-2.5-flash-lite | OAuth | Free |
+| **Groq** | llama-3.3-70b, llama-3.1-8b, mixtral-8x7b, gemma2-9b | API Key | Free tier |
 | **Ollama** | llama3.2, mistral, codellama, phi3 | Local | Free |
-| **OpenRouter** | claude-3.5, gpt-4o, gemini-pro | API Key | Paid |
-| **Together** | llama-3.1-405b, mixtral-8x22b | API Key | Paid |
-| **HuggingFace** | llama-3-70b, mixtral-8x7b | API Key | Paid |
+| **OpenRouter** | claude-3.5-sonnet, gpt-4o, gemini-pro-1.5, llama-3.1-405b | API Key | Paid |
+| **Together** | llama-3.1-405b, llama-3.1-70b, mixtral-8x22b | API Key | Paid |
+| **HuggingFace** | llama-3-70b, mixtral-8x7b, gemma-7b | API Key | Paid |
 
 ---
 
@@ -89,10 +90,10 @@ llm-supercli
 
 ### Qwen (Free - OAuth)
 
-Uses Qwen Code CLI credentials. Install and login via:
+Uses Qwen Code CLI credentials:
 
 ```bash
-npm install -g @qwen-code/qwen-code
+npm install -g @anthropic-ai/qwen-code
 qwen  # Follow OAuth flow
 ```
 
@@ -102,7 +103,7 @@ Credentials stored in `~/.qwen/oauth_creds.json`
 
 ### Gemini (Free - OAuth)
 
-Uses Gemini CLI credentials. Install and login via:
+Uses Gemini CLI credentials:
 
 ```bash
 npm install -g @anthropic-ai/gemini-cli
@@ -110,6 +111,15 @@ gemini  # Follow OAuth flow
 ```
 
 Credentials stored in `~/.gemini/oauth_creds.json`
+
+### Ollama (Free - Local)
+
+Run models locally with Ollama:
+
+```bash
+# Install Ollama from https://ollama.ai
+ollama pull llama3.2
+```
 
 ### API Keys
 
@@ -146,7 +156,36 @@ Or set via CLI:
 | `/cost` | Show token usage |
 | `/key [provider] [key]` | Set API key |
 | `/mcp` | Manage MCP servers |
+| `/account` | View account information |
+| `/favorite` | Save session as favorite |
+| `/compress` | Compress conversation context |
+| `/rewind` | Rewind to previous message |
 | `/quit` | Exit the CLI |
+| `/update` | Check for updates and install |
+
+---
+
+## Updating
+
+### From within the CLI
+
+```bash
+/update
+```
+
+This will check for new versions and prompt you to update if available.
+
+### Manual update
+
+```bash
+# npm installation
+npm update -g llm-supercli
+
+# pip installation
+pip install --upgrade llm-supercli
+```
+
+After updating, restart the CLI to use the new version.
 
 ---
 
@@ -164,6 +203,21 @@ Tell me about @src/main.py
 # Multiple files
 Explain the difference between @file1.py and @file2.py
 ```
+
+---
+
+## Built-in Tools
+
+The LLM can use these tools during conversations:
+
+| Tool | Description |
+|------|-------------|
+| `list_directory(path)` | List files and folders |
+| `read_file(path)` | Read file contents |
+| `write_file(path, content)` | Create or write a file |
+| `create_directory(path)` | Create a folder |
+| `run_command(command)` | Run shell command |
+| `get_current_directory()` | Get current working directory |
 
 ---
 
@@ -189,18 +243,26 @@ Access interactive settings menu:
 - Python 3.10+
 - Node.js 14+ (for npm installation)
 
-**Python dependencies:**
+**Dependencies:**
 - rich >= 13.0.0
 - httpx >= 0.25.0
 - click >= 8.0.0
 - prompt_toolkit >= 3.0.0
-- pyfiglet
+- packaging >= 21.0
 
 ---
 
 ## License
 
-MIT License
+MIT License - see [LICENSE](LICENSE) for details.
+
+---
+
+## Links
+
+- **GitHub:** https://github.com/alisaalisaalisaalisas/LLM_SuperCLI
+- **npm:** https://www.npmjs.com/package/llm-supercli
+- **PyPI:** https://pypi.org/project/llm-supercli/
 
 ---
 

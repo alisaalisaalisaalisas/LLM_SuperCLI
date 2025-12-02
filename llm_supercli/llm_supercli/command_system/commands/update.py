@@ -12,6 +12,7 @@ from ..base import AsyncSlashCommand, CommandResult
 from ...constants import APP_VERSION
 from ...update_cache import UpdateCache
 from ...update_checker import UpdateChecker
+from ...update_notifier import get_update_notifier
 
 
 class UpdateCommand(AsyncSlashCommand):
@@ -96,6 +97,13 @@ class UpdateCommand(AsyncSlashCommand):
         success = self._run_npm_update()
         
         if success:
+            # Clear the cache so exit notification doesn't show stale info
+            cache.clear_cache()
+            
+            # Clear any pending update notification so it doesn't show on exit
+            notifier = get_update_notifier()
+            notifier.clear_pending_notification()
+            
             return CommandResult.success(
                 f"✓ Successfully updated to version {result.latest_version}!\n\n"
                 "Please restart the CLI to use the new version."

@@ -1,6 +1,6 @@
 {
   "name": "llm-supercli",
-  "version": "1.0.21",
+  "version": "1.0.23",
   "description": "A powerful multi-provider LLM command line interface",
   "files": [
     "bin/",
@@ -31,7 +31,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": ""
+    "url": "https://github.com/alisaalisaalisaalisas/LLM_SuperCLI.git"
   },
   "engines": {
     "node": ">=14"

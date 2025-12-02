@@ -50,10 +50,10 @@ llm-supercli = "llm_supercli.main:main"
 llm = "llm_supercli.main:main"
 
 [project.urls]
-Homepage = "https://github.com/llm-supercli/llm-supercli"
-Documentation = "https://github.com/llm-supercli/llm-supercli#readme"
-Repository = "https://github.com/llm-supercli/llm-supercli"
-Issues = "https://github.com/llm-supercli/llm-supercli/issues"
+Homepage = "https://github.com/alisaalisaalisaalisas/LLM_SuperCLI"
+Documentation = "https://github.com/alisaalisaalisaalisas/LLM_SuperCLI#readme"
+Repository = "https://github.com/alisaalisaalisaalisas/LLM_SuperCLI"
+Issues = "https://github.com/alisaalisaalisaalisas/LLM_SuperCLI/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]

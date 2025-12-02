@@ -12,6 +12,18 @@ from rich.text import Text
 from .update_checker import UpdateResult
 
 
+# Global notifier instance
+_notifier: Optional['UpdateNotifier'] = None
+
+
+def get_update_notifier(console: Optional[Console] = None) -> 'UpdateNotifier':
+    """Get the global update notifier instance."""
+    global _notifier
+    if _notifier is None:
+        _notifier = UpdateNotifier(console)
+    return _notifier
+
+
 class UpdateNotifier:
     """
     Handles update notification display.

@@ -264,8 +264,8 @@ def main() -> int:
     
     # Initialize update notifier for the interactive CLI
     # Requirements: 3.3 - Show notification after main operation completes
-    from .update_notifier import UpdateNotifier
-    notifier = UpdateNotifier()
+    from .update_notifier import get_update_notifier
+    notifier = get_update_notifier()
     
     # Start update check in background thread if not disabled
     # Requirements: 2.1, 2.2, 2.3 - Control update checking behavior

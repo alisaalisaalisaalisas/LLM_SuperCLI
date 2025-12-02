@@ -25,11 +25,11 @@ function setupVenv() {
     }
     // Install deps in venv
     console.log('Installing dependencies...');
-    execSync(`"${venvPip}" install rich httpx click prompt_toolkit pyfiglet --quiet`, { stdio: 'inherit' });
+    execSync(`"${venvPip}" install rich httpx click prompt_toolkit pyfiglet packaging --quiet`, { stdio: 'inherit' });
     console.log('Done!\n');
   } catch (err) {
     console.error('Setup failed. Make sure Python 3.10+ is installed.');
-    console.error('Or run manually: pip install rich httpx click prompt_toolkit pyfiglet');
+    console.error('Or run manually: pip install rich httpx click prompt_toolkit pyfiglet packaging');
     process.exit(1);
   }
 }

@@ -15,11 +15,11 @@ try {
   // Fallback: try installing dependencies directly
   console.log('Trying fallback installation...');
   try {
-    execSync(`${pipCmd} install rich httpx click prompt_toolkit pyfiglet`, { stdio: 'inherit' });
+    execSync(`${pipCmd} install rich httpx click prompt_toolkit pyfiglet packaging`, { stdio: 'inherit' });
     console.log('✅ Dependencies installed. Run "llm" or "llm-supercli" to start.');
   } catch (err2) {
     console.error('❌ Failed to install Python dependencies.');
-    console.error('Please run manually: pip install rich httpx click prompt_toolkit pyfiglet');
+    console.error('Please run manually: pip install rich httpx click prompt_toolkit pyfiglet packaging');
     process.exit(1);
   }
 }
