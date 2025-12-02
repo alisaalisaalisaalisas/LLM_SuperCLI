@@ -363,13 +363,15 @@ class ToolCatalog:
         lines = [
             "# Tool Invocation Syntax",
             "",
-            "To use a tool, write a function call in your response:",
+            "To use a tool, write a function call using this format:",
             "",
-            "```",
-            "tool_name('argument')",
-            "tool_name('arg1', 'arg2')",
+            "```python",
             "tool_name(param='value')",
             "```",
+            "",
+            "When telling users about available tools, describe them in plain language.",
+            "Do NOT show raw XML tags or code syntax to users.",
+            "Instead, explain what each tool does conversationally.",
             "",
         ]
         

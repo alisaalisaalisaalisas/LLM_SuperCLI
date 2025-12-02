@@ -90,9 +90,6 @@ class GeminiProvider(LLMProvider):
     
     async def _load_oauth_credentials(self) -> dict:
         """Load OAuth credentials from file."""
-        # First fetch OAuth config
-        await self._fetch_oauth_config()
-        
         cred_path = Path.home() / ".gemini" / "oauth_creds.json"
         if not cred_path.exists():
             raise ValueError(
@@ -103,6 +100,14 @@ class GeminiProvider(LLMProvider):
         
         with open(cred_path, 'r') as f:
             self._credentials = json.load(f)
+        
+        # Try to load OAuth client credentials from stored creds first (offline refresh)
+        if self._credentials.get("_oauth_client_id") and self._credentials.get("_oauth_client_secret"):
+            self._oauth_client_id = self._credentials["_oauth_client_id"]
+            self._oauth_client_secret = self._credentials["_oauth_client_secret"]
+        else:
+            # Fall back to fetching from extension config
+            await self._fetch_oauth_config()
         
         return self._credentials
     
@@ -120,8 +125,27 @@ class GeminiProvider(LLMProvider):
     
     async def _refresh_token(self) -> None:
         """Refresh the OAuth access token."""
+        # Try to get OAuth config - first from stored creds, then from remote
         if not self._oauth_client_id or not self._oauth_client_secret:
-            await self._fetch_oauth_config()
+            # Check if stored in credentials file
+            if self._credentials and self._credentials.get("_oauth_client_id"):
+                self._oauth_client_id = self._credentials["_oauth_client_id"]
+                self._oauth_client_secret = self._credentials["_oauth_client_secret"]
+            else:
+                # Try to fetch from remote config
+                try:
+                    await self._fetch_oauth_config()
+                except Exception as e:
+                    raise ValueError(
+                        f"Cannot refresh token: OAuth config unavailable ({e}).\n"
+                        "Please re-login with: /login gemini"
+                    )
+        
+        if not self._oauth_client_id or not self._oauth_client_secret:
+            raise ValueError(
+                "OAuth client credentials not available.\n"
+                "Please re-login with: /login gemini"
+            )
         
         if not self._credentials.get("refresh_token"):
             raise ValueError(
@@ -146,6 +170,11 @@ class GeminiProvider(LLMProvider):
                 self._credentials["expiry_date"] = int(time.time() * 1000 + data.get("expires_in", 3600) * 1000)
                 if data.get("refresh_token"):
                     self._credentials["refresh_token"] = data["refresh_token"]
+                
+                # Store OAuth client credentials for future offline refresh
+                if self._oauth_client_id and self._oauth_client_secret:
+                    self._credentials["_oauth_client_id"] = self._oauth_client_id
+                    self._credentials["_oauth_client_secret"] = self._oauth_client_secret
                 
                 # Save refreshed credentials
                 cred_path = Path.home() / ".gemini" / "oauth_creds.json"

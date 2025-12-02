@@ -360,9 +360,11 @@ class MessageRenderer:
     # -------------------------------------------------------------------------
     
     def _cleanup_live(self) -> None:
-        """Clean up the Live display context."""
+        """Clean up the Live display context and clear streaming content."""
         if self._live:
             try:
+                # Update with empty content before stopping to clear the display
+                self._live.update(Text(""))
                 self._live.stop()
             except Exception as e:
                 logger.debug(f"Error stopping live display: {e}")
@@ -372,8 +374,8 @@ class MessageRenderer:
     def _update_reasoning_display(self) -> None:
         """Update the live display with current reasoning content.
         
-        Displays reasoning in a yellow-bordered panel with the 💭 Reasoning
-        header during streaming. Uses a cursor indicator to show active streaming.
+        Displays reasoning during streaming with a cursor indicator.
+        The 💭 header is only added in _finalize_reasoning_panel to avoid duplicates.
         
         Requirements: 5.1, 5.2 - Yellow panel with real-time updates
         """
@@ -385,19 +387,18 @@ class MessageRenderer:
         if not display_text:
             return
         
-        # Display reasoning without border
-        cursor = "▌"
-        content = Text()
-        content.append("💭 ", style="yellow")
-        content.append(display_text, style="dim italic")
-        content.append(cursor, style="dim")
-        self._live.update(content)
+        # Create text with proper newline handling - no emoji header during streaming
+        # The emoji will be added in _finalize_reasoning_panel
+        # Use underscore cursor for better terminal compatibility
+        content_text = Text(display_text + "_", style="dim italic")
+        
+        self._live.update(content_text)
     
     def _update_response_display(self) -> None:
         """Update the live display with current response content.
         
-        Displays response in a cyan-bordered panel with the 🤖 Assistant
-        header during streaming. Uses markdown rendering for proper formatting.
+        Displays response during streaming with markdown rendering for proper formatting.
+        The 🤖 header is only added in _finalize_response_panel to avoid duplicates.
         
         Requirements: 4.2, 4.3 - Assistant panel with cyan border and markdown
         """
@@ -408,16 +409,17 @@ class MessageRenderer:
         display_text = filter_tool_syntax(self._buffer.response) if self._buffer.response else ""
         if not display_text.strip():
             # Show minimal placeholder during streaming
-            self._live.update(Text("▌", style="dim"))
+            # Use underscore cursor for better terminal compatibility
+            self._live.update(Text("_", style="dim"))
             return
         
-        # Display response without border
-        cursor = "▌"
-        content = Text()
-        content.append("🤖 ", style="cyan")
-        content.append(display_text)
-        content.append(cursor, style="dim")
-        self._live.update(content)
+        # Add cursor to the end of the content - no emoji header during streaming
+        # The emoji will be added in _finalize_response_panel
+        # Use underscore cursor for better terminal compatibility
+        content_with_cursor = display_text + "_"
+        markdown_content = Markdown(content_with_cursor)
+        
+        self._live.update(markdown_content)
     
     def _finalize_reasoning_panel(self) -> None:
         """Finalize reasoning display.

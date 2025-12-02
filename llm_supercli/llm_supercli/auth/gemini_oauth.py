@@ -173,7 +173,7 @@ class GeminiOAuth:
         return None
     
     async def _save_credentials(self, token_data: dict) -> None:
-        """Save credentials in Gemini CLI format."""
+        """Save credentials in Gemini CLI format with OAuth config for offline refresh."""
         gemini_dir = Path.home() / ".gemini"
         gemini_dir.mkdir(exist_ok=True)
         
@@ -185,6 +185,12 @@ class GeminiOAuth:
             "token_type": token_data.get("token_type", "Bearer"),
             "expiry_date": int((time.time() + token_data.get("expires_in", 3600)) * 1000)
         }
+        
+        # Store OAuth client credentials for offline token refresh
+        # This allows refresh to work even if kilocode.ai is unavailable
+        if self.client_id and self.client_secret:
+            creds["_oauth_client_id"] = self.client_id
+            creds["_oauth_client_secret"] = self.client_secret
         
         with open(cred_path, 'w') as f:
             json.dump(creds, f, indent=2)
@@ -258,7 +264,22 @@ class GeminiOAuth:
     
     async def refresh_token(self, refresh_token: str) -> Optional[AuthSession]:
         """Refresh an expired access token."""
-        await self._fetch_oauth_config()
+        # Try to load OAuth config from stored credentials first
+        if not self.client_id or not self.client_secret:
+            cred_path = Path.home() / ".gemini" / "oauth_creds.json"
+            if cred_path.exists():
+                try:
+                    with open(cred_path, 'r') as f:
+                        creds = json.load(f)
+                        if creds.get("_oauth_client_id") and creds.get("_oauth_client_secret"):
+                            self.client_id = creds["_oauth_client_id"]
+                            self.client_secret = creds["_oauth_client_secret"]
+                except (json.JSONDecodeError, IOError):
+                    pass
+        
+        # Fall back to fetching from remote if not found locally
+        if not self.client_id or not self.client_secret:
+            await self._fetch_oauth_config()
         
         async with httpx.AsyncClient() as client:
             try:

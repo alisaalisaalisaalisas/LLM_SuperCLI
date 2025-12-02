@@ -521,6 +521,7 @@ class RichRenderer:
         backward compatibility with existing interface.
         
         Requirements: 7.1, 7.2 - Maintain existing public interface
+        Requirements: 1.1 - Deduplication now handled by MessageRenderer.buffer
         """
         # Reset MessageRenderer for new message
         if self._message_renderer.phase.value not in ("idle", "complete", "error"):
@@ -529,10 +530,9 @@ class RichRenderer:
             self._message_renderer.reset()
         
         # Initialize legacy buffers for backward compatibility
-        # These are still used by stop_live_stream() return value
+        # Note: _raw_response_buffer removed - deduplication handled by MessageRenderer.buffer
         self._reasoning_buffer = ""
         self._response_buffer = ""
-        self._raw_response_buffer = ""
         self._in_thinking = False
         
         # Delegate to MessageRenderer
@@ -545,13 +545,12 @@ class RichRenderer:
         of think tags and routing to appropriate stream methods.
         
         Requirements: 7.1, 7.2 - Maintain existing public interface
+        Requirements: 1.2, 2.1, 2.2 - Deduplication handled by MessageRenderer
         """
         if not chunk:
             return
         
         # Ensure legacy buffers exist for backward compatibility
-        if not hasattr(self, '_raw_response_buffer'):
-            self._raw_response_buffer = ""
         if not hasattr(self, '_reasoning_buffer'):
             self._reasoning_buffer = ""
         if not hasattr(self, '_response_buffer'):
@@ -559,11 +558,9 @@ class RichRenderer:
         if not hasattr(self, '_in_thinking'):
             self._in_thinking = False
         
-        # Always add chunk to raw buffer (for CLI tool parsing)
-        self._raw_response_buffer += chunk
-        
         # Delegate to MessageRenderer for streaming display
-        # MessageRenderer handles think tag parsing and content routing
+        # MessageRenderer handles think tag parsing, content routing, and deduplication
+        # Note: We no longer accumulate raw chunks here - MessageRenderer.buffer handles deduplication
         self._message_renderer.stream_content(chunk)
         
         # Sync legacy buffers from MessageRenderer for backward compatibility
@@ -579,21 +576,22 @@ class RichRenderer:
         backward compatibility with existing interface.
         
         Requirements: 7.1, 7.2 - Maintain existing public interface
+        Requirements: 1.1, 1.4, 2.3 - Return deduplicated content with tool syntax preserved
         
         Returns:
             Tuple of (response_content, reasoning_content)
-            Note: response_content includes raw tool calls for parsing by CLI
+            Note: response_content includes tool calls for parsing by CLI (deduplicated)
         """
         # Finalize via MessageRenderer
         filtered_response, reasoning = self._message_renderer.finalize()
         
-        # For backward compatibility, return raw response (CLI needs tool calls for parsing)
-        # The filtered_response has tool syntax removed, but CLI may need the raw version
-        raw_response = getattr(self, '_raw_response_buffer', filtered_response)
+        # Use deduplicated response from MessageRenderer.buffer
+        # This preserves tool syntax for CLI parsing while ensuring no duplicates
+        deduplicated_response = self._message_renderer.buffer.response
         
         # If reasoning contains what looks like the actual response (markdown headers,
         # structured content), move it to response and keep only the thinking part
-        if reasoning and not raw_response:
+        if reasoning and not deduplicated_response:
             # Find where the actual response starts (markdown headers, "Based on", etc.)
             response_markers = [
                 r'^#{1,3}\s+',  # Markdown headers
@@ -618,9 +616,9 @@ class RichRenderer:
                 reasoning_lines = lines[:response_start_idx]
                 response_lines = lines[response_start_idx:]
                 reasoning = '\n'.join(reasoning_lines).strip()
-                raw_response = '\n'.join(response_lines).strip()
+                deduplicated_response = '\n'.join(response_lines).strip()
         
-        return raw_response.strip(), reasoning.strip()
+        return deduplicated_response.strip(), reasoning.strip()
     
     def was_response_printed(self) -> bool:
         """Check if the response was already printed during streaming finalization.

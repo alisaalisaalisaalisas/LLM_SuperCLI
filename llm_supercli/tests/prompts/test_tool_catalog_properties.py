@@ -331,7 +331,7 @@ def test_tool_syntax_rendering_contains_tool_names(tools: list[ToolDefinition]):
     # If there's output, it SHOULD contain Python-style syntax
     if output:
         # Check for Python-style tool invocation patterns
-        assert "tool_name('argument')" in output, (
+        assert "tool_name(param='value')" in output, (
             f"Text protocol output should contain Python-style syntax example. "
             f"Output: {output[:500]}..."
         )
@@ -388,7 +388,7 @@ def test_protocol_consistency(tools: list[ToolDefinition], protocol: str):
     output = catalog.render(mode, protocol=protocol)
     
     if output:
-        has_python_syntax = "tool_name('argument')" in output
+        has_python_syntax = "tool_name(param='value')" in output
         
         if protocol == "native":
             assert not has_python_syntax, "Native protocol should not have Python-style syntax examples"
