@@ -21,6 +21,7 @@ from .ascii import ASCIIArt
 from .message_renderer import MessageRenderer
 from .message_state import ToolCallRecord
 from .content_parser import parse_think_tags, filter_tool_syntax
+from .action_renderer import ActionRenderer
 from ..constants import APP_NAME, APP_VERSION
 
 
@@ -49,6 +50,10 @@ class RichRenderer:
         # Initialize MessageRenderer for streaming content
         # Requirements: 7.1, 7.2, 7.3 - Integration with existing architecture
         self._message_renderer = MessageRenderer(self._console, self._theme_manager)
+        
+        # Initialize ActionRenderer for action cards system
+        # Requirements: 7.4, 8.3 - Integration with action cards
+        self._action_renderer = ActionRenderer(self._console, self._theme_manager)
     
     @property
     def console(self) -> Console:
@@ -59,6 +64,17 @@ class RichRenderer:
     def theme(self) -> ThemeManager:
         """Get the theme manager."""
         return self._theme_manager
+    
+    @property
+    def action_renderer(self) -> ActionRenderer:
+        """Get the ActionRenderer for rendering action cards.
+        
+        Returns:
+            ActionRenderer instance for external access
+            
+        Requirements: 7.4, 8.3 - Expose action renderer for CLI integration
+        """
+        return self._action_renderer
     
     def update_theme(self, theme_name: str) -> bool:
         """
@@ -112,60 +128,131 @@ class RichRenderer:
         timestamp: Optional[str] = None
     ) -> None:
         """
-        Print a chat message.
+        Print a chat message with role-specific styling.
+        
+        Renders messages in distinct panels with appropriate icons and borders:
+        - User messages: 👤 icon, dim border, plain text
+        - Assistant messages: 🤖 icon, cyan border, markdown rendering
+        - System messages: ⚙️ icon, dim italic style
         
         Args:
             content: Message content
             role: Message role ('user', 'assistant', 'system')
             show_timestamp: Whether to show timestamp
             timestamp: Optional timestamp string
+            
+        Requirements: 4.1, 4.2, 4.3, 4.4 - Message panels with role icons
+        Requirements: 9.2, 9.3 - Responsive layout
         """
-        style_map = {
-            "user": "user",
-            "assistant": "assistant",
-            "system": "system",
-        }
+        from .layout_manager import get_layout_manager
+        layout = get_layout_manager()
         
+        # Role-specific icons (Requirements 4.1, 4.2)
         icon_map = {
-            "user": self._ascii_art.get_icon("user"),
-            "assistant": self._ascii_art.get_icon("robot"),
-            "system": self._ascii_art.get_icon("system"),
+            "user": "👤",
+            "assistant": "🤖",
+            "system": "⚙️",
         }
         
-        style = self._theme_manager.get_style(f"{style_map.get(role, 'assistant')}_message")
-        icon = icon_map.get(role, "")
+        # Role-specific border styles (Requirements 4.1, 4.2)
+        border_style_map = {
+            "user": "dim",
+            "assistant": "cyan",  # Primary accent color
+            "system": "dim",
+        }
         
+        # Role-specific title styles
+        title_style_map = {
+            "user": "dim",
+            "assistant": "bold cyan",
+            "system": "dim italic",
+        }
+        
+        icon = icon_map.get(role, "")
+        border_style = border_style_map.get(role, "dim")
+        title_style = title_style_map.get(role, "dim")
+        
+        # Build header with icon and role name
         header = f"{icon} {role.capitalize()}"
         if show_timestamp and timestamp:
             header += f" [{timestamp}]"
         
+        # Render content based on role (Requirement 4.3 - markdown for assistant)
+        if role == "assistant":
+            # Use Markdown rendering for assistant messages
+            rendered_content = Markdown(content)
+        else:
+            # Use plain Text for user/system messages
+            rendered_content = Text(content)
+        
+        # Get responsive padding from layout manager (Requirements 9.2, 9.3)
+        padding = layout.get_panel_padding()
+        
+        # Determine panel width for wide terminals
+        panel_width = None
+        if layout.is_wide_terminal():
+            panel_width = layout.get_panel_width()
+        
+        # Create panel with role-specific styling (Requirement 4.4 - text wrapping)
         panel = Panel(
-            Markdown(content) if role == "assistant" else Text(content),
-            title=f"[{style}]{header}[/{style}]",
+            rendered_content,
+            title=f"[{title_style}]{header}[/{title_style}]",
             title_align="left",
-            border_style=self._theme_manager.get_color("primary") if role == "assistant" else "dim",
-            padding=(0, 1)
+            border_style=border_style,
+            padding=padding,
+            width=panel_width
         )
-        self._console.print(panel)
+        
+        # For wide terminals, center the panel
+        if layout.is_wide_terminal():
+            wrapped = layout.wrap_for_width(panel)
+            self._console.print(wrapped)
+        else:
+            self._console.print(panel)
     
     def print_reasoning(self, content: str) -> None:
         """
-        Print reasoning/thinking content in a styled box.
+        Print reasoning/thinking content in a styled yellow panel.
+        
+        Displays the model's thinking process in a distinct yellow-bordered
+        panel with the 💭 Reasoning header.
         
         Args:
             content: Reasoning content to display
+            
+        Requirements: 5.1 - Yellow-bordered panel with "💭 Reasoning" header
+        Requirements: 9.2, 9.3 - Responsive layout
         """
         if not content.strip():
             return
-            
+        
+        from .layout_manager import get_layout_manager
+        layout = get_layout_manager()
+        
+        # Get responsive padding from layout manager
+        padding = layout.get_panel_padding()
+        
+        # Determine panel width for wide terminals
+        panel_width = None
+        if layout.is_wide_terminal():
+            panel_width = layout.get_panel_width()
+        
+        # Use yellow border and header for reasoning (Requirement 5.1)
         panel = Panel(
             Text(content, style="dim italic"),
             title="[yellow]💭 Reasoning[/yellow]",
             title_align="left",
             border_style="yellow",
-            padding=(0, 1)
+            padding=padding,
+            width=panel_width
         )
-        self._console.print(panel)
+        
+        # For wide terminals, center the panel
+        if layout.is_wide_terminal():
+            wrapped = layout.wrap_for_width(panel)
+            self._console.print(wrapped)
+        else:
+            self._console.print(panel)
     
     def print_markdown(self, content: str) -> None:
         """
@@ -372,16 +459,24 @@ class RichRenderer:
         
         self._console.print(" ".join(parts))
     
-    def start_spinner(self, message: str = "Thinking...") -> Live:
+    def start_spinner(self, message: str = "Thinking...", show_cancel_hint: bool = True) -> Live:
         """
-        Start a spinner animation.
+        Start a spinner animation with optional cancel hint.
+        
+        Displays "Thinking..." with spinner animation and "Ctrl+X to cancel"
+        hint aligned to the right side of the terminal.
         
         Args:
             message: Message to display with spinner
+            show_cancel_hint: Whether to show "Ctrl+X to cancel" hint
             
         Returns:
             Live context for updating/stopping
+            
+        Requirements: 7.1 - Display "Thinking..." with spinner animation
+        Requirements: 7.2 - Show "Ctrl+X to cancel" hint aligned right
         """
+        # Create spinner with message
         spinner = Progress(
             SpinnerColumn(style=self._theme_manager.get_style("spinner")),
             TextColumn("[progress.description]{task.description}"),
@@ -389,15 +484,77 @@ class RichRenderer:
         )
         spinner.add_task(message, total=None)
         
-        self._live = Live(spinner, console=self._console, refresh_per_second=10)
+        # Create content with cancel hint if requested
+        if show_cancel_hint:
+            # Get terminal width for right alignment
+            terminal_width = self._console.width or 80
+            
+            # Create a table layout for spinner + cancel hint
+            from rich.table import Table
+            layout = Table.grid(expand=True)
+            layout.add_column(ratio=1)  # Spinner column (expands)
+            layout.add_column(justify="right")  # Cancel hint column (right-aligned)
+            layout.add_row(spinner, Text("Ctrl+X to cancel", style="dim"))
+            
+            self._live = Live(layout, console=self._console, refresh_per_second=10, transient=True)
+        else:
+            self._live = Live(spinner, console=self._console, refresh_per_second=10, transient=True)
+        
         self._live.start()
         return self._live
     
-    def stop_spinner(self) -> None:
-        """Stop the current spinner."""
+    def stop_spinner(self, transition_to_content: bool = False) -> None:
+        """
+        Stop the current spinner with smooth transition.
+        
+        Stops the animated spinner. When transition_to_content is True,
+        the spinner is removed cleanly to allow live content to take over.
+        
+        Args:
+            transition_to_content: If True, prepare for live content transition
+            
+        Requirements: 7.3 - Replace spinner with live content smoothly
+        """
         if self._live:
-            self._live.stop()
-            self._live = None
+            try:
+                self._live.stop()
+            except Exception:
+                pass  # Ignore errors during stop
+            finally:
+                self._live = None
+
+    def start_thinking(self, message: str = "Thinking...") -> Live:
+        """
+        Start thinking indicator with spinner and cancel hint.
+        
+        Convenience method that starts a spinner with the "Ctrl+X to cancel"
+        hint displayed. This is the preferred method for showing the thinking
+        state during API calls.
+        
+        Args:
+            message: Message to display (default: "Thinking...")
+            
+        Returns:
+            Live context for updating/stopping
+            
+        Requirements: 7.1 - Display "Thinking..." with spinner animation
+        Requirements: 7.2 - Show "Ctrl+X to cancel" hint aligned right
+        """
+        return self.start_spinner(message, show_cancel_hint=True)
+
+    def stop_thinking(self, transition_to_stream: bool = True) -> None:
+        """
+        Stop thinking indicator and prepare for content streaming.
+        
+        Stops the thinking spinner and prepares for smooth transition
+        to live streaming content.
+        
+        Args:
+            transition_to_stream: If True, prepare for streaming transition
+            
+        Requirements: 7.3 - Replace spinner with live content smoothly
+        """
+        self.stop_spinner(transition_to_content=transition_to_stream)
     
     def start_live_reasoning(self) -> None:
         """Start live display for streaming reasoning.

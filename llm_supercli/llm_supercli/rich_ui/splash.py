@@ -1,141 +1,240 @@
-"""Cyberpunk neon splash screen for llm_supercli."""
+"""Responsive splash screen for llm_supercli.
+
+Requirements:
+- 10.1: Display ASCII art logo with branding on startup
+- 10.2: Use smaller banner variant for narrow terminals
+- 10.3: Show startup instructions below banner
+"""
 from rich.console import Console
 from rich.text import Text
-from rich.style import Style
-from rich.color import Color
-import pyfiglet
-from ..constants import APP_VERSION
+from rich.panel import Panel
+from rich.align import Align
+import shutil
 
-# Cyberpunk border characters
-TL = "╭"  # top-left
-TR = "╮"  # top-right  
-BL = "╰"  # bottom-left
-BR = "╯"  # bottom-right
-H = "─"   # horizontal
-V = "│"   # vertical
+from ..constants import APP_VERSION
+from .theme import get_theme_manager
+
+# Compact threshold for small banner variant (Req 10.2)
+COMPACT_WIDTH_THRESHOLD = 80
+
+# Full ASCII banner for wide terminals (>= 80 cols)
+FULL_BANNER = r"""
+ ██╗     ██╗     ███╗   ███╗    ███████╗██╗   ██╗██████╗ ███████╗██████╗  ██████╗██╗     ██╗
+ ██║     ██║     ████╗ ████║    ██╔════╝██║   ██║██╔══██╗██╔════╝██╔══██╗██╔════╝██║     ██║
+ ██║     ██║     ██╔████╔██║    ███████╗██║   ██║██████╔╝█████╗  ██████╔╝██║     ██║     ██║
+ ██║     ██║     ██║╚██╔╝██║    ╚════██║██║   ██║██╔═══╝ ██╔══╝  ██╔══██╗██║     ██║     ██║
+ ███████╗███████╗██║ ╚═╝ ██║    ███████║╚██████╔╝██║     ███████╗██║  ██║╚██████╗███████╗██║
+ ╚══════╝╚══════╝╚═╝     ╚═╝    ╚══════╝ ╚═════╝ ╚═╝     ╚══════╝╚═╝  ╚═╝ ╚═════╝╚══════╝╚═╝
+"""
+
+# Small ASCII banner for narrow terminals (< 80 cols) - Req 10.2
+SMALL_BANNER = r"""
+ ╔═╗╦ ╦╔═╗╔═╗╦═╗╔═╗╦  ╦
+ ╚═╗║ ║╠═╝║╣ ╠╦╝║  ║  ║
+ ╚═╝╚═╝╩  ╚═╝╩╚═╚═╝╩═╝╩
+"""
+
+# Minimal banner for very narrow terminals (< 60 cols)
+MINIMAL_BANNER = r"""
+SuperCLI
+"""
+
+# Startup instructions shown below banner - Req 10.3
+STARTUP_INSTRUCTIONS = """
+Type a message to start chatting, or use these commands:
+  /help     Show all commands
+  /model    Switch model or provider
+  /mode     Change interaction mode
+  !cmd      Execute shell command
+  @file     Include file in prompt
+"""
+
+# Compact startup instructions for narrow terminals
+COMPACT_INSTRUCTIONS = """
+/help for commands  |  /model to switch  |  ! for shell
+"""
+
 
 def get_gradient_color(position: float) -> str:
-    """
-    Get a color from a Green -> Yellow -> Red gradient based on position (0.0 to 1.0).
-    """
-    # Green: #00FF00 (0, 255, 0)
-    # Yellow: #FFFF00 (255, 255, 0)
-    # Red: #FF0000 (255, 0, 0)
+    """Get a color from a Green -> Yellow -> Red gradient.
     
+    Args:
+        position: Position in gradient (0.0 to 1.0)
+        
+    Returns:
+        RGB color string
+    """
     if position < 0.5:
         # Green to Yellow
-        # R: 0 -> 255, G: 255 -> 255, B: 0
         ratio = position * 2
-        r = int(0 + (255 - 0) * ratio)
+        r = int(255 * ratio)
         g = 255
         b = 0
     else:
         # Yellow to Red
-        # R: 255, G: 255 -> 0, B: 0
         ratio = (position - 0.5) * 2
         r = 255
-        g = int(255 + (0 - 255) * ratio)
+        g = int(255 * (1 - ratio))
         b = 0
-        
+    
     return f"rgb({r},{g},{b})"
 
-def print_splash(console: Console = None) -> None:
-    """Print the cyberpunk neon splash screen."""
-    console = console or Console()
-    width = console.width or 90
+
+def _get_terminal_width() -> int:
+    """Get current terminal width."""
+    size = shutil.get_terminal_size(fallback=(80, 24))
+    return size.columns
+
+
+def _render_banner_with_gradient(banner_text: str, width: int) -> Text:
+    """Render banner text with gradient coloring.
     
-    # Generate Logo - force single line by using large width
-    try:
-        f = pyfiglet.Figlet(font='ansi_shadow', width=500)
-    except:
-        f = pyfiglet.Figlet(width=500) # Fallback
+    Args:
+        banner_text: ASCII art banner string
+        width: Terminal width for centering
         
-    if width < 95:
-        logo_text = f.renderText('SuperCLI')
-    else:
-        logo_text = f.renderText('LLMSuperCLI')
+    Returns:
+        Rich Text object with gradient colors
+    """
+    lines = banner_text.strip().split('\n')
+    max_line_width = max(len(line) for line in lines) if lines else 0
+    
+    result = Text()
+    
+    for line in lines:
+        # Calculate centering padding
+        padding = max(0, (width - len(line)) // 2)
+        result.append(" " * padding)
         
-    logo_lines = logo_text.split('\n')
-    # Remove empty first/last lines if any
-    if logo_lines and not logo_lines[0].strip(): 
-        logo_lines.pop(0)
-    if logo_lines and not logo_lines[-1].strip(): 
-        logo_lines.pop()
-    
-    max_line_width = max(len(line) for line in logo_lines) if logo_lines else 0
-    frame_width = max_line_width + 8
-    
-    # Build the frame
-    lines = []
-    
-    # Top border with circuit corners - BRIGHT NEON GREEN
-    neon_green = "bright_green"
-    top = f"[{neon_green}]╭─┬{'─' * (frame_width - 6)}┬─╮[/{neon_green}]"
-    lines.append(Text.from_markup(top))
-    lines.append(Text.from_markup(f"[{neon_green}]│ │{' ' * (frame_width - 6)}│ │[/{neon_green}]"))
-    lines.append(Text.from_markup(f"[{neon_green}]├─╯{' ' * (frame_width - 6)}╰─┤[/{neon_green}]"))
-    
-    # Render Logo with Gradient
-    for line in logo_lines:
-        text = Text()
-        # Left padding/border
-        text.append("│ ", style=neon_green)
-        
-        # Centering padding
-        padding_len = (frame_width - 4 - len(line)) // 2
-        text.append(" " * padding_len)
-        
-        # Gradient text
+        # Apply gradient to each character
         for i, char in enumerate(line):
             if char.strip():
-                # Calculate relative position in the full logo width for gradient
-                # We use max_line_width to ensure consistent gradient across lines
                 rel_pos = i / max_line_width if max_line_width > 0 else 0
                 color = get_gradient_color(rel_pos)
-                text.append(char, style=color)
+                result.append(char, style=color)
             else:
-                text.append(char)
-                
-        # Right padding
-        right_padding = frame_width - 4 - len(line) - padding_len
-        text.append(" " * right_padding)
+                result.append(char)
         
-        # Right border
-        text.append(" │", style=neon_green)
-        lines.append(text)
+        result.append("\n")
     
-    # Empty lines before version
-    for _ in range(2):
-        lines.append(Text.from_markup(f"[{neon_green}]│{' ' * (frame_width - 2)}│[/{neon_green}]"))
+    return result
+
+
+def _get_banner_for_width(width: int) -> str:
+    """Select appropriate banner based on terminal width.
     
-    # Version line with red circle (right-aligned)
+    Requirements: 10.2 - Use smaller banner variant for narrow terminals
+    
+    Args:
+        width: Terminal width in columns
+        
+    Returns:
+        Appropriate banner string
+    """
+    if width < 60:
+        return MINIMAL_BANNER
+    elif width < COMPACT_WIDTH_THRESHOLD:
+        return SMALL_BANNER
+    else:
+        return FULL_BANNER
+
+
+def _get_instructions_for_width(width: int) -> str:
+    """Select appropriate instructions based on terminal width.
+    
+    Requirements: 10.3 - Show startup instructions below banner
+    
+    Args:
+        width: Terminal width in columns
+        
+    Returns:
+        Appropriate instructions string
+    """
+    if width < COMPACT_WIDTH_THRESHOLD:
+        return COMPACT_INSTRUCTIONS
+    else:
+        return STARTUP_INSTRUCTIONS
+
+
+def print_splash(console: Console = None) -> None:
+    """Print the responsive splash screen.
+    
+    Requirements:
+    - 10.1: Display ASCII art logo with branding
+    - 10.2: Use smaller banner variant for narrow terminals
+    - 10.3: Show startup instructions below banner
+    
+    Args:
+        console: Optional Rich Console instance
+    """
+    console = console or Console()
+    width = console.width or _get_terminal_width()
+    
+    # Get theme colors
+    theme_manager = get_theme_manager()
+    primary_color = theme_manager.get_color("primary") or "#00d7d7"
+    success_color = theme_manager.get_color("success") or "#00ff00"
+    muted_color = theme_manager.get_color("muted") or "#666666"
+    
+    # Select appropriate banner for terminal width (Req 10.2)
+    banner_text = _get_banner_for_width(width)
+    
+    # Render banner with gradient
+    banner = _render_banner_with_gradient(banner_text, width)
+    
+    # Version text
     version_text = Text()
-    version_text.append("│ ", style=neon_green)
-    version_str = f"v{APP_VERSION}"
+    version_text.append("v", style=muted_color)
+    version_text.append(APP_VERSION, style=f"bold {primary_color}")
     
-    # Calculate padding to right-align the version circle
-    # Format: "│ <spaces> ( v1.0.0 ) │"
-    # frame_width accounts for both borders (│), so inner width is frame_width - 2
-    circle_content = f"( {version_str} )"
-    inner_width = frame_width - 2  # subtract both border characters
-    padding_before_circle = inner_width - len(circle_content) -2  # -2 for final space before right border
-    version_text.append(" " * padding_before_circle)
-    
-    # Red circle around version
-    version_text.append("( ", style="bold red")
-    version_text.append(version_str, style="bold red")
-    version_text.append(" )", style="bold red")
-    version_text.append(" ", style="")
-    version_text.append("│", style=neon_green)
-    lines.append(version_text)
-    
-    # Bottom border with circuit corners
-    lines.append(Text.from_markup(f"[{neon_green}]├─╮{' ' * (frame_width - 6)}╭─┤[/{neon_green}]"))
-    lines.append(Text.from_markup(f"[{neon_green}]│ │{' ' * (frame_width - 6)}│ │[/{neon_green}]"))
-    lines.append(Text.from_markup(f"[{neon_green}]╰─┴{'─' * (frame_width - 6)}┴─╯[/{neon_green}]"))
-    
-    # Print with dark background effect
+    # Print banner
     console.print()
-    for line in lines:
-        console.print(line)
+    console.print(banner)
+    
+    # Print version centered
+    console.print(Align.center(version_text))
+    console.print()
+    
+    # Print startup instructions (Req 10.3)
+    instructions = _get_instructions_for_width(width)
+    instructions_text = Text(instructions.strip(), style=muted_color)
+    
+    if width >= COMPACT_WIDTH_THRESHOLD:
+        # Full instructions in a subtle panel for wide terminals
+        console.print(
+            Panel(
+                Align.center(instructions_text),
+                border_style=muted_color,
+                padding=(0, 2),
+            )
+        )
+    else:
+        # Compact instructions without panel for narrow terminals
+        console.print(Align.center(instructions_text))
+    
+    console.print()
+
+
+def print_minimal_splash(console: Console = None) -> None:
+    """Print a minimal splash for very constrained environments.
+    
+    Args:
+        console: Optional Rich Console instance
+    """
+    console = console or Console()
+    
+    theme_manager = get_theme_manager()
+    primary_color = theme_manager.get_color("primary") or "#00d7d7"
+    muted_color = theme_manager.get_color("muted") or "#666666"
+    
+    # Simple one-line header
+    header = Text()
+    header.append("LLM SuperCLI ", style=f"bold {primary_color}")
+    header.append(f"v{APP_VERSION}", style=muted_color)
+    header.append(" | ", style=muted_color)
+    header.append("/help", style=primary_color)
+    header.append(" for commands", style=muted_color)
+    
+    console.print()
+    console.print(Align.center(header))
     console.print()

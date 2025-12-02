@@ -1,6 +1,8 @@
 """
 Interactive input handler using prompt_toolkit for llm_supercli.
-Provides real-time autocomplete with dropdown menus.
+Provides real-time autocomplete with dropdown menus and bordered input panel.
+
+Requirements: 2.1, 2.2, 2.3, 2.4 - Input Prompt Panel
 """
 import os
 from pathlib import Path
@@ -13,12 +15,22 @@ from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.styles import Style
 from prompt_toolkit.history import InMemoryHistory
 
+from rich.console import Console
+from rich.panel import Panel
+from rich.text import Text
 
-# Custom style for the prompt - dark theme like Qwen
+from .theme import get_theme_manager
+
+
+# Default placeholder text for input panel
+DEFAULT_PLACEHOLDER = "> Type a message or /command..."
+
+
+# Custom style for the prompt - dark theme
 PROMPT_STYLE = Style.from_dict({
     'prompt': '#00ff00',  # bright green
     'path': '#00ff00',    # bright green
-    'model': '#00d7d7',  # cyan for model
+    'model': '#00d7d7',   # cyan for model
     'context': '#00d7d7',
     'bottom-toolbar': 'bg:#1a1a1a #666666',
     'bottom-toolbar.text': '#666666',
@@ -26,12 +38,15 @@ PROMPT_STYLE = Style.from_dict({
     'completion-menu.completion.current': 'bg:#00aaaa #000000 bold',
     'completion-menu.meta.completion': 'bg:#262626 #666666',
     'completion-menu.meta.completion.current': 'bg:#00aaaa #000000',
+    'placeholder': '#666666 italic',
 })
 
 
 class CLICompleter(Completer):
     """
     Custom completer that handles /, @, and ! prefixes.
+    
+    Requirements: 2.4 - Autocomplete dropdown for /, @, and ! prefixes
     """
     
     def __init__(self) -> None:
@@ -51,7 +66,7 @@ class CLICompleter(Completer):
             ('pip install', 'Install package'),
             ('npm', 'Node package manager'),
         ]
-    
+
     def set_commands(self, commands: List[dict]) -> None:
         """Set available slash commands."""
         self._commands = [
@@ -255,6 +270,131 @@ class CLICompleter(Completer):
         return f'{size:.1f} TB'
 
 
+class InputPanel:
+    """
+    Bordered input panel component with placeholder text.
+    
+    Requirements:
+    - 2.1: Display bordered panel with placeholder text
+    - 2.2: Replace placeholder with actual input text
+    - 2.3: Clear input panel after submission
+    
+    Display format:
+    ┌─────────────────────────────────────────────────────────────────┐
+    │ > Type a message or /command...                                 │
+    └─────────────────────────────────────────────────────────────────┘
+    """
+    
+    def __init__(self, console: Optional[Console] = None) -> None:
+        """
+        Initialize the InputPanel.
+        
+        Args:
+            console: Optional Rich Console instance
+        """
+        self._console = console or Console(force_terminal=True, color_system="auto")
+        self._theme = get_theme_manager()
+        self._placeholder = DEFAULT_PLACEHOLDER
+        self._content = ""
+        self._width: Optional[int] = None
+    
+    @property
+    def placeholder(self) -> str:
+        """Get the placeholder text."""
+        return self._placeholder
+    
+    @placeholder.setter
+    def placeholder(self, value: str) -> None:
+        """Set the placeholder text."""
+        self._placeholder = value
+    
+    @property
+    def content(self) -> str:
+        """Get the current input content."""
+        return self._content
+    
+    def set_content(self, text: str) -> None:
+        """
+        Set the input content.
+        
+        Requirements: 2.2 - Replace placeholder with actual input text
+        
+        Args:
+            text: Input text to display
+        """
+        self._content = text
+    
+    def clear(self) -> None:
+        """
+        Clear the input content.
+        
+        Requirements: 2.3 - Clear input panel after submission
+        """
+        self._content = ""
+    
+    def set_width(self, width: int) -> None:
+        """
+        Set the panel width.
+        
+        Args:
+            width: Width in columns
+        """
+        self._width = width
+    
+    def render(self, width: Optional[int] = None) -> Panel:
+        """
+        Render the input panel.
+        
+        Requirements: 2.1 - Display bordered panel with placeholder
+        
+        Args:
+            width: Optional width override
+            
+        Returns:
+            Panel containing input area
+        """
+        effective_width = width or self._width or self._console.width
+        
+        # Build content text
+        if self._content:
+            # Show actual input text
+            text = Text(self._content, style=self._theme.get_style("prompt"))
+        else:
+            # Show placeholder
+            text = Text(self._placeholder, style="dim italic")
+        
+        # Get theme colors for border
+        border_style = self._theme.get_color("primary") or "cyan"
+        
+        return Panel(
+            text,
+            border_style=border_style,
+            padding=(0, 1),
+            width=effective_width - 2 if effective_width else None,
+        )
+    
+    def render_text(self) -> Text:
+        """
+        Render just the text content (without panel border).
+        
+        Returns:
+            Text object with content or placeholder
+        """
+        if self._content:
+            return Text(self._content, style=self._theme.get_style("prompt"))
+        else:
+            return Text(self._placeholder, style="dim italic")
+    
+    def print(self, width: Optional[int] = None) -> None:
+        """
+        Print the input panel to console.
+        
+        Args:
+            width: Optional width override
+        """
+        self._console.print(self.render(width))
+
+
 def get_status_bar(cwd: str, model: str, context_pct: int = 100) -> str:
     """Get status bar showing directory, model, and context."""
     import os
@@ -292,13 +432,27 @@ class PromptInput:
     Interactive input handler with prompt_toolkit.
     
     Features:
+    - Bordered input panel with placeholder text
     - Status bar showing directory, model, context
     - Dropdown autocomplete for /, @, !
     - Tab/Arrow navigation
     - Command history
+    
+    Requirements:
+    - 2.1: Display bordered panel with placeholder text
+    - 2.2: Replace placeholder with actual input text
+    - 2.3: Clear input panel after submission
+    - 2.4: Show autocomplete dropdown for /, @, and ! prefixes
     """
     
-    def __init__(self) -> None:
+    def __init__(self, console: Optional[Console] = None) -> None:
+        """
+        Initialize the PromptInput.
+        
+        Args:
+            console: Optional Rich Console instance
+        """
+        self._console = console or Console(force_terminal=True, color_system="auto")
         self._completer = CLICompleter()
         self._history = InMemoryHistory()
         self._session: Optional[PromptSession] = None
@@ -306,6 +460,13 @@ class PromptInput:
         self._cwd = os.getcwd()
         self._model = 'groq/llama-3.3-70b'
         self._context_pct = 100
+        self._input_panel = InputPanel(console=self._console)
+        self._theme = get_theme_manager()
+    
+    @property
+    def input_panel(self) -> InputPanel:
+        """Get the input panel component."""
+        return self._input_panel
     
     def set_commands(self, commands: List[dict]) -> None:
         """Set available slash commands."""
@@ -319,6 +480,17 @@ class PromptInput:
             self._model = model
         if context_pct is not None:
             self._context_pct = context_pct
+    
+    def set_placeholder(self, placeholder: str) -> None:
+        """
+        Set the input placeholder text.
+        
+        Requirements: 2.1 - Display placeholder text
+        
+        Args:
+            placeholder: Placeholder text to display
+        """
+        self._input_panel.placeholder = placeholder
     
     def _get_toolbar(self) -> HTML:
         """Get bottom toolbar with status info."""
@@ -335,9 +507,41 @@ class PromptInput:
             reserve_space_for_menu=8,
         )
     
-    def get_input(self, prompt: str = '>>> ') -> str:
-        """Get input with interactive autocomplete and dropdown menus."""
+    def render_panel(self, width: Optional[int] = None) -> Panel:
+        """
+        Render the input panel for display.
+        
+        Requirements: 2.1 - Display bordered panel
+        
+        Args:
+            width: Optional width override
+            
+        Returns:
+            Panel containing input area
+        """
+        return self._input_panel.render(width)
+    
+    def get_input(self, prompt: str = '>>> ', show_panel: bool = False) -> str:
+        """
+        Get input with interactive autocomplete and dropdown menus.
+        
+        Requirements:
+        - 2.2: Replace placeholder with actual input text
+        - 2.3: Clear input panel after submission
+        - 2.4: Show autocomplete dropdown
+        
+        Args:
+            prompt: Prompt string to display
+            show_panel: Whether to show bordered panel before input
+            
+        Returns:
+            User input string
+        """
         self._current_text = ''
+        
+        # Show bordered panel if requested
+        if show_panel:
+            self._input_panel.print()
         
         if self._session is None:
             self._session = self._create_session()
@@ -345,20 +549,69 @@ class PromptInput:
         try:
             result = self._session.prompt(prompt)
             self._current_text = result
+            
+            # Clear input panel after submission (Requirement 2.3)
+            self._input_panel.clear()
+            
             return result
         except EOFError:
             return '/quit'
         except KeyboardInterrupt:
             return ''
+    
+    def get_input_with_panel(self, width: Optional[int] = None) -> str:
+        """
+        Get input with bordered panel display.
+        
+        This method shows the bordered input panel before prompting.
+        
+        Requirements: 2.1, 2.2, 2.3, 2.4
+        
+        Args:
+            width: Optional width for panel
+            
+        Returns:
+            User input string
+        """
+        # Set panel width if provided
+        if width:
+            self._input_panel.set_width(width)
+        
+        return self.get_input(prompt='>>> ', show_panel=True)
 
 
-# Global instance
+# Global instances
 _prompt_input: Optional[PromptInput] = None
+_input_panel: Optional[InputPanel] = None
 
 
-def get_prompt_input() -> PromptInput:
-    """Get global prompt input instance."""
+def get_prompt_input(console: Optional[Console] = None) -> PromptInput:
+    """
+    Get global prompt input instance.
+    
+    Args:
+        console: Optional console to use (only used on first call)
+        
+    Returns:
+        Global PromptInput instance
+    """
     global _prompt_input
     if _prompt_input is None:
-        _prompt_input = PromptInput()
+        _prompt_input = PromptInput(console=console)
     return _prompt_input
+
+
+def get_input_panel(console: Optional[Console] = None) -> InputPanel:
+    """
+    Get global input panel instance.
+    
+    Args:
+        console: Optional console to use (only used on first call)
+        
+    Returns:
+        Global InputPanel instance
+    """
+    global _input_panel
+    if _input_panel is None:
+        _input_panel = InputPanel(console=console)
+    return _input_panel

@@ -15,42 +15,92 @@ from ..constants import CONFIG_DIR, THEMES_DIR, DEFAULT_THEME
 
 @dataclass
 class ThemeColors:
-    """Theme color definitions."""
-    primary: str = "cyan"
+    """Theme color definitions.
+    
+    Standardized color palette per Requirements 8.1-8.5:
+    - primary: Cyan (#00d7d7) for accents and provider names (Req 8.1)
+    - success: Green (#00ff00) for success indicators and prompt text (Req 8.2)
+    - warning: Yellow for reasoning panels and warnings (Req 8.3)
+    - error: Red for error messages and failure indicators (Req 8.4)
+    - muted: Dim gray for secondary text and separators (Req 8.5)
+    """
+    # Primary accent color - cyan for accents and provider names (Req 8.1)
+    primary: str = "#00d7d7"
+    # Secondary accent color
     secondary: str = "magenta"
-    accent: str = "yellow"
-    success: str = "green"
-    warning: str = "yellow"
-    error: str = "red"
+    # Accent color - yellow for reasoning panels (Req 8.3)
+    accent: str = "#ffff00"
+    # Success color - green for success indicators (Req 8.2)
+    success: str = "#00ff00"
+    # Warning color - yellow for warnings (Req 8.3)
+    warning: str = "#ffff00"
+    # Error color - red for errors and failures (Req 8.4)
+    error: str = "#ff0000"
+    # Info color
     info: str = "blue"
-    muted: str = "dim white"
-    background: str = "default"
+    # Muted color - dim gray for secondary text (Req 8.5)
+    muted: str = "#666666"
+    # Background color
+    background: str = "#1a1a1a"
+    # Foreground color
     foreground: str = "white"
+    # Border color for panels
+    border: str = "#333333"
 
 
 @dataclass
 class ThemeStyles:
-    """Theme style definitions for different UI elements."""
-    prompt: str = "bold cyan"
+    """Theme style definitions for different UI elements.
+    
+    Uses standardized color palette per Requirements 8.1-8.5:
+    - Cyan (#00d7d7) for primary accents (Req 8.1)
+    - Green (#00ff00) for success and prompt (Req 8.2)
+    - Yellow for reasoning and warnings (Req 8.3)
+    - Red for errors (Req 8.4)
+    - Dim gray (#666666) for secondary text (Req 8.5)
+    """
+    # Prompt style - green for prompt text (Req 8.2)
+    prompt: str = "bold #00ff00"
+    # User message style
     user_message: str = "white"
-    assistant_message: str = "green"
-    system_message: str = "dim italic"
-    error_message: str = "bold red"
-    warning_message: str = "bold yellow"
+    # Assistant message style - green (Req 8.2)
+    assistant_message: str = "#00ff00"
+    # System message style - dim gray (Req 8.5)
+    system_message: str = "#666666 italic"
+    # Error message style - red (Req 8.4)
+    error_message: str = "bold #ff0000"
+    # Warning message style - yellow (Req 8.3)
+    warning_message: str = "bold #ffff00"
+    # Info message style
     info_message: str = "blue"
+    # Code block styles
     code: str = "on grey23"
     code_border: str = "grey50"
-    panel_border: str = "cyan"
-    panel_title: str = "bold cyan"
+    # Panel styles - cyan for borders (Req 8.1)
+    panel_border: str = "#00d7d7"
+    panel_title: str = "bold #00d7d7"
+    # Header/footer styles
     header: str = "bold white on blue"
-    footer: str = "dim"
-    highlight: str = "bold yellow"
+    footer: str = "#666666"
+    # Highlight style - yellow (Req 8.3)
+    highlight: str = "bold #ffff00"
+    # Link style
     link: str = "underline blue"
+    # Command style
     command: str = "bold magenta"
-    token_count: str = "dim cyan"
-    cost: str = "dim green"
-    timestamp: str = "dim"
-    spinner: str = "cyan"
+    # Token/cost display - dim gray (Req 8.5)
+    token_count: str = "#666666"
+    cost: str = "#666666"
+    timestamp: str = "#666666"
+    # Spinner style - cyan (Req 8.1)
+    spinner: str = "#00d7d7"
+    # Reasoning panel style - yellow (Req 8.3)
+    reasoning_border: str = "#ffff00"
+    reasoning_title: str = "bold #ffff00"
+    # Success indicator style - green (Req 8.2)
+    success_indicator: str = "bold #00ff00"
+    # Failure indicator style - red (Req 8.4)
+    failure_indicator: str = "bold #ff0000"
 
 
 @dataclass
@@ -64,6 +114,7 @@ class Theme:
     def to_rich_theme(self) -> RichTheme:
         """Convert to Rich Theme object."""
         style_dict = {
+            # Color definitions
             "primary": self.colors.primary,
             "secondary": self.colors.secondary,
             "accent": self.colors.accent,
@@ -72,6 +123,8 @@ class Theme:
             "error": self.colors.error,
             "info": self.colors.info,
             "muted": self.colors.muted,
+            "border": self.colors.border,
+            # Style definitions
             "prompt": self.styles.prompt,
             "user": self.styles.user_message,
             "assistant": self.styles.assistant_message,
@@ -92,6 +145,12 @@ class Theme:
             "cost": self.styles.cost,
             "timestamp": self.styles.timestamp,
             "spinner": self.styles.spinner,
+            # Reasoning panel styles (Req 8.3)
+            "reasoning.border": self.styles.reasoning_border,
+            "reasoning.title": self.styles.reasoning_title,
+            # Success/failure indicators (Req 8.2, 8.4)
+            "success_indicator": self.styles.success_indicator,
+            "failure_indicator": self.styles.failure_indicator,
         }
         return RichTheme(style_dict)
     
@@ -123,6 +182,7 @@ class Theme:
                 'muted': self.colors.muted,
                 'background': self.colors.background,
                 'foreground': self.colors.foreground,
+                'border': self.colors.border,
             },
             'styles': {
                 'prompt': self.styles.prompt,
@@ -145,6 +205,10 @@ class Theme:
                 'cost': self.styles.cost,
                 'timestamp': self.styles.timestamp,
                 'spinner': self.styles.spinner,
+                'reasoning_border': self.styles.reasoning_border,
+                'reasoning_title': self.styles.reasoning_title,
+                'success_indicator': self.styles.success_indicator,
+                'failure_indicator': self.styles.failure_indicator,
             }
         }
 
@@ -183,39 +247,45 @@ class ThemeManager:
         """Load built-in themes."""
         self._themes['default'] = Theme()
         
+        # Dark theme uses standardized colors with slight brightness adjustments
         dark_colors = ThemeColors(
-            primary="bright_cyan",
+            primary="#00d7d7",      # Cyan (Req 8.1)
             secondary="bright_magenta",
-            accent="bright_yellow",
-            success="bright_green",
-            warning="bright_yellow",
-            error="bright_red",
+            accent="#ffff00",       # Yellow (Req 8.3)
+            success="#00ff00",      # Green (Req 8.2)
+            warning="#ffff00",      # Yellow (Req 8.3)
+            error="#ff0000",        # Red (Req 8.4)
             info="bright_blue",
-            muted="grey62",
-            background="grey7",
-            foreground="grey93"
+            muted="#666666",        # Dim gray (Req 8.5)
+            background="#1a1a1a",
+            foreground="grey93",
+            border="#333333"
         )
         dark_styles = ThemeStyles(
-            prompt="bold bright_cyan",
+            prompt="bold #00ff00",           # Green (Req 8.2)
             user_message="grey93",
-            assistant_message="bright_green",
-            system_message="grey62 italic",
-            error_message="bold bright_red",
-            warning_message="bold bright_yellow",
+            assistant_message="#00ff00",     # Green (Req 8.2)
+            system_message="#666666 italic", # Dim gray (Req 8.5)
+            error_message="bold #ff0000",    # Red (Req 8.4)
+            warning_message="bold #ffff00",  # Yellow (Req 8.3)
             info_message="bright_blue",
             code="on grey15",
             code_border="grey42",
-            panel_border="bright_cyan",
-            panel_title="bold bright_cyan",
+            panel_border="#00d7d7",          # Cyan (Req 8.1)
+            panel_title="bold #00d7d7",      # Cyan (Req 8.1)
             header="bold white on grey23",
-            footer="grey62",
-            highlight="bold bright_yellow",
+            footer="#666666",                # Dim gray (Req 8.5)
+            highlight="bold #ffff00",        # Yellow (Req 8.3)
             link="underline bright_blue",
             command="bold bright_magenta",
-            token_count="grey62",
-            cost="grey62",
-            timestamp="grey50",
-            spinner="bright_cyan"
+            token_count="#666666",           # Dim gray (Req 8.5)
+            cost="#666666",                  # Dim gray (Req 8.5)
+            timestamp="#666666",             # Dim gray (Req 8.5)
+            spinner="#00d7d7",               # Cyan (Req 8.1)
+            reasoning_border="#ffff00",      # Yellow (Req 8.3)
+            reasoning_title="bold #ffff00",  # Yellow (Req 8.3)
+            success_indicator="bold #00ff00", # Green (Req 8.2)
+            failure_indicator="bold #ff0000"  # Red (Req 8.4)
         )
         self._themes['dark'] = Theme(
             name="dark",
@@ -234,7 +304,8 @@ class ThemeManager:
             info="#2aa198",
             muted="#93a1a1",
             background="#002b36",
-            foreground="#839496"
+            foreground="#839496",
+            border="#586e75"
         )
         solarized_styles = ThemeStyles(
             prompt="bold #268bd2",
@@ -256,7 +327,11 @@ class ThemeManager:
             token_count="#657b83",
             cost="#657b83",
             timestamp="#586e75",
-            spinner="#268bd2"
+            spinner="#268bd2",
+            reasoning_border="#b58900",
+            reasoning_title="bold #b58900",
+            success_indicator="bold #859900",
+            failure_indicator="bold #dc322f"
         )
         self._themes['solarized'] = Theme(
             name="solarized",

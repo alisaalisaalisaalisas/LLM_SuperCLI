@@ -105,6 +105,8 @@ class MessageRenderer:
         Transitions from IDLE to THINKING state and displays a spinner
         to indicate the model is processing.
         
+        Requirements: 7.1, 7.2 - Thinking indicator with cancel hint
+        
         Raises:
             RuntimeError: If called when not in IDLE state
         """
@@ -121,13 +123,20 @@ class MessageRenderer:
         self._static_content.clear()
         self._in_thinking = False
         
+        # Build thinking indicator with cancel hint (Requirements 7.1, 7.2)
+        thinking_text = Text()
+        thinking_text.append("⠋ Thinking...", style="dim italic")
+        thinking_text.append("  ")
+        thinking_text.append("Ctrl+X to cancel", style="dim")
+        
         # Start live display with thinking spinner
+        # Use transient=True to prevent panel stacking/duplication
         self._live = Live(
-            Text("⠋ Thinking...", style="dim italic"),
+            thinking_text,
             console=self._console,
             refresh_per_second=15,
             vertical_overflow="visible",
-            transient=False,
+            transient=True,
         )
         self._live.start()
     
@@ -353,7 +362,13 @@ class MessageRenderer:
                 self._live = None
     
     def _update_reasoning_display(self) -> None:
-        """Update the live display with current reasoning content."""
+        """Update the live display with current reasoning content.
+        
+        Displays reasoning in a yellow-bordered panel with the 💭 Reasoning
+        header during streaming. Uses a cursor indicator to show active streaming.
+        
+        Requirements: 5.1, 5.2 - Yellow panel with real-time updates
+        """
         if not self._live or not self._buffer.reasoning:
             return
         
@@ -362,8 +377,12 @@ class MessageRenderer:
         if not display_text:
             return
         
+        # Use yellow-bordered panel during streaming (Requirement 5.1)
+        cursor = "▌"
+        content_with_cursor = Text(f"{display_text}{cursor}", style="dim italic")
+        
         panel = Panel(
-            Text(display_text, style="dim italic"),
+            content_with_cursor,
             title="[yellow]💭 Reasoning[/yellow]",
             title_align="left",
             border_style="yellow",
@@ -372,7 +391,13 @@ class MessageRenderer:
         self._live.update(panel)
     
     def _update_response_display(self) -> None:
-        """Update the live display with current response content."""
+        """Update the live display with current response content.
+        
+        Displays response in a cyan-bordered panel with the 🤖 Assistant
+        header during streaming. Uses markdown rendering for proper formatting.
+        
+        Requirements: 4.2, 4.3 - Assistant panel with cyan border and markdown
+        """
         if not self._live or not self._buffer.response:
             return
         
@@ -381,11 +406,20 @@ class MessageRenderer:
         if not display_text.strip():
             return
         
+        # Use cyan-bordered panel during streaming (Requirement 4.2)
+        cursor = "▌"
+        
+        # Use Markdown rendering for assistant responses (Requirement 4.3)
+        # Add cursor at the end to indicate streaming
+        content_with_cursor = Text()
+        content_with_cursor.append(display_text)
+        content_with_cursor.append(cursor, style="dim")
+        
         panel = Panel(
-            Markdown(display_text),
-            title=f"[{self._theme.get_style('assistant_message')}]🤖 Assistant[/{self._theme.get_style('assistant_message')}]",
+            content_with_cursor,
+            title="[bold cyan]🤖 Assistant[/bold cyan]",
             title_align="left",
-            border_style=self._theme.get_color("primary"),
+            border_style="cyan",
             padding=(0, 1),
         )
         self._live.update(panel)
@@ -393,37 +427,49 @@ class MessageRenderer:
     def _finalize_reasoning_panel(self) -> None:
         """Finalize reasoning display.
         
-        The Live panel with transient=False persists after stopping,
-        so we don't need to print a static panel. Just stop the live
-        display and restart for response streaming.
+        Print the reasoning panel as static content with yellow border,
+        then restart live display for response streaming.
+        
+        Requirements: 5.1, 5.3 - Yellow panel finalized before response
         """
         if not self._buffer.reasoning:
             return
         
-        # Stop live display - content persists because transient=False
+        # Stop live display
         self._cleanup_live()
         
-        # Restart live display for response
+        # Print reasoning as static panel with yellow border (Requirement 5.1)
+        display_text = self._buffer.reasoning.strip()
+        if display_text:
+            panel = Panel(
+                Text(display_text, style="dim italic"),
+                title="[yellow]💭 Reasoning[/yellow]",
+                title_align="left",
+                border_style="yellow",
+                padding=(0, 1),
+            )
+            self._console.print(panel)
+        
+        # Restart live display for response streaming
         self._live = Live(
             Text("", style="dim"),
             console=self._console,
             refresh_per_second=15,
             vertical_overflow="visible",
-            transient=False,
+            transient=True,
         )
         self._live.start()
     
     def _finalize_response_panel(self) -> None:
         """Finalize response display.
         
-        The Live panel with transient=False persists after stopping,
-        so we don't need to print a static panel. Just stop the live
-        display to finalize the content.
+        Just stop the live display - the CLI will handle printing the final
+        response panel to avoid duplication.
         """
         if not self._buffer.response:
             return
         
-        # Stop live display - content persists because transient=False
+        # Stop live display - CLI will print the final response
         self._cleanup_live()
     
     def _format_tool_header(self, call: ToolCallRecord) -> RenderableType:

@@ -408,16 +408,29 @@ def python_style_multi_arg_call_strategy(draw):
     }
 
 
+import keyword
+
+# Python reserved keywords that cannot be used as argument names
+_PYTHON_KEYWORDS = frozenset(keyword.kwlist)
+
+
 @st.composite
 def valid_kwarg_name_strategy(draw):
-    """Generate valid Python keyword argument names."""
+    """Generate valid Python keyword argument names.
+    
+    Excludes Python reserved keywords (like 'as', 'if', 'for', etc.)
+    since they cannot be used as keyword argument names in valid Python syntax.
+    """
     first_char = draw(st.sampled_from('abcdefghijklmnopqrstuvwxyz'))
     rest_chars = draw(st.text(
         alphabet='abcdefghijklmnopqrstuvwxyz0123456789_',
         min_size=1,
         max_size=10
     ))
-    return first_char + rest_chars
+    name = first_char + rest_chars
+    # Exclude Python reserved keywords - they can't be used as kwarg names
+    assume(name not in _PYTHON_KEYWORDS)
+    return name
 
 
 @st.composite

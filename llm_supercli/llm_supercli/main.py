@@ -2,10 +2,40 @@
 Main entry point for llm_supercli.
 """
 import argparse
+import os
 import sys
 from typing import Optional
 
 from .constants import APP_NAME, APP_VERSION, APP_DESCRIPTION
+
+
+# Environment variable name for disabling update checks
+# Requirements: 2.1 - Environment variable to skip update check
+UPDATE_CHECK_ENV_VAR = "LLM_SUPERCLI_NO_UPDATE_CHECK"
+
+
+def is_update_check_disabled(args: argparse.Namespace) -> bool:
+    """
+    Check if update checking is disabled via CLI flag or environment variable.
+    
+    Args:
+        args: Parsed command line arguments.
+        
+    Returns:
+        True if update checking should be skipped, False otherwise.
+        
+    Requirements: 2.1, 2.2, 2.3 - Control update checking behavior
+    """
+    # Check CLI flag first (Requirements: 2.2)
+    if getattr(args, 'no_update_check', False):
+        return True
+    
+    # Check environment variable (Requirements: 2.1)
+    env_value = os.environ.get(UPDATE_CHECK_ENV_VAR, "").strip()
+    if env_value in ("1", "true", "yes", "on"):
+        return True
+    
+    return False
 
 
 def parse_args() -> argparse.Namespace:
@@ -43,6 +73,12 @@ def parse_args() -> argparse.Namespace:
         "--no-stream",
         action="store_true",
         help="Disable response streaming"
+    )
+    
+    parser.add_argument(
+        "--no-update-check",
+        action="store_true",
+        help="Skip automatic update check on startup"
     )
     
     parser.add_argument(
@@ -130,8 +166,47 @@ Register-ArgumentCompleter -Native -CommandName llm-supercli -ScriptBlock {
     return ""
 
 
+def run_update_check_sync(notifier: 'UpdateNotifier') -> None:
+    """
+    Run update check in a background thread without blocking.
+    
+    Args:
+        notifier: UpdateNotifier instance to queue notifications.
+        
+    Requirements: 1.1, 3.1, 3.2 - Non-blocking async update check
+    """
+    import asyncio
+    from .constants import APP_VERSION
+    from .update_cache import UpdateCache
+    from .update_checker import UpdateChecker
+    
+    async def _check():
+        cache = UpdateCache()
+        checker = UpdateChecker(cache)
+        result = await checker.check_for_update(APP_VERSION)
+        
+        if result.update_available:
+            notifier.queue_notification(result)
+    
+    try:
+        # Create a new event loop for this thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(_check())
+        finally:
+            loop.close()
+    except Exception:
+        # Silently ignore any errors during update check
+        # Requirements: 1.4 - Continue normal operation without displaying errors
+        pass
+
+
 def main() -> int:
     """Main entry point."""
+    import asyncio
+    import threading
+    
     args = parse_args()
     
     if args.completion:
@@ -166,7 +241,6 @@ def main() -> int:
         return 0 if result.is_success else 1
     
     if args.execute:
-        import asyncio
         from .llm import get_provider_registry
         
         async def run_prompt():
@@ -188,11 +262,39 @@ def main() -> int:
         
         return asyncio.run(run_prompt())
     
+    # Initialize update notifier for the interactive CLI
+    # Requirements: 3.3 - Show notification after main operation completes
+    from .update_notifier import UpdateNotifier
+    notifier = UpdateNotifier()
+    
+    # Start update check in background thread if not disabled
+    # Requirements: 2.1, 2.2, 2.3 - Control update checking behavior
+    update_thread = None
+    if not is_update_check_disabled(args):
+        # Run update check in background thread without blocking CLI startup
+        # Requirements: 3.1, 3.2 - Non-blocking async update check
+        update_thread = threading.Thread(
+            target=run_update_check_sync,
+            args=(notifier,),
+            daemon=True  # Thread will be killed when main program exits
+        )
+        update_thread.start()
+    
     from .cli import CLI
     cli = CLI()
     
     try:
         cli.run()
+        
+        # Wait for update check thread to complete (with timeout)
+        # Requirements: 3.3 - Show notification after main CLI output completes
+        if update_thread is not None and update_thread.is_alive():
+            # Give the update check a short time to complete if it hasn't already
+            update_thread.join(timeout=0.5)
+        
+        # Show any pending update notification
+        notifier.show_pending_notification()
+        
         return 0
     except KeyboardInterrupt:
         print("\nGoodbye!")

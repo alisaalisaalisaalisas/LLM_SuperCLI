@@ -13,6 +13,10 @@ from .config import get_config
 from .rich_ui import RichRenderer, InputHandler, get_theme_manager
 from .rich_ui.prompt_input import PromptInput
 from .rich_ui.message_state import ToolCallRecord
+from .rich_ui.tool_action_mapper import ToolActionMapper
+from .rich_ui.layout_manager import LayoutManager, get_layout_manager
+from .rich_ui.status_bar import StatusBar, StatusBarData, get_status_bar
+from .rich_ui.hints_bar import HintsBar, get_hints_bar
 from .command_system import CommandParser, get_command_registry
 from .history import get_session_store
 from .llm import get_provider_registry
@@ -47,14 +51,48 @@ class CLI:
     
     Manages the interactive command loop, processes user input,
     and coordinates between all components.
+    
+    Requirements: 9.1 - Integration with LayoutManager for responsive UI
     """
     
     def __init__(self) -> None:
-        """Initialize the CLI."""
+        """Initialize the CLI with proper component initialization order.
+        
+        Initialization order (Requirements: All):
+        1. Configuration - load settings first
+        2. LayoutManager - set up responsive layout infrastructure
+        3. Renderer - UI rendering with layout awareness
+        4. StatusBar - fixed footer component
+        5. HintsBar - help hints display
+        6. Input - user input handling
+        7. Other components - commands, sessions, providers, etc.
+        """
+        # 1. Configuration - load settings first
         self._config = get_config()
+        
+        # 2. LayoutManager - set up responsive layout infrastructure
+        # Requirements: 9.1, 9.2, 9.3 - Terminal responsiveness
+        self._layout_manager = get_layout_manager()
+        
+        # 3. Renderer - UI rendering with layout awareness
         self._renderer = RichRenderer()
+        
+        # 4. StatusBar - fixed footer component
+        # Requirements: 1.1, 1.2, 1.3, 1.4 - Fixed Status Bar Layout
+        self._status_bar = get_status_bar(console=self._renderer.console)
+        self._status_bar.set_layout_manager(self._layout_manager)
+        
+        # 5. HintsBar - help hints display
+        # Requirements: 3.1, 3.2 - Help Hints Bar
+        self._hints_bar = get_hints_bar(console=self._renderer.console)
+        
+        # 6. Input and command handling
         self._parser = CommandParser()
         self._commands = get_command_registry()
+        self._input = PromptInput()
+        self._input.set_commands(self._commands.list_commands())
+        
+        # 7. Other components
         self._sessions = get_session_store()
         self._providers = get_provider_registry()
         self._mcp = get_mcp_manager()
@@ -63,11 +101,16 @@ class CLI:
         self._tools = ToolExecutor()
         self._running = False
         self._current_mode: str = "code"  # Default mode
-        self._input = PromptInput()
-        self._input.set_commands(self._commands.list_commands())
         
         # Initialize the new prompt system
         self._prompt_builder = self._create_prompt_builder()
+        
+        # Initialize ToolActionMapper for action cards integration
+        # Requirements: 8.1, 8.2 - Automatically generate action cards for tool execution
+        self._tool_action_mapper = ToolActionMapper(
+            action_renderer=self._renderer.action_renderer,
+            working_dir=os.getcwd()
+        )
     
     def _create_prompt_builder(self) -> PromptBuilder:
         """Create and configure the PromptBuilder with default sections and modes.
@@ -128,20 +171,42 @@ class CLI:
         return main_content, thinking
     
     def run(self) -> None:
-        """Run the CLI main loop."""
+        """Run the CLI main loop with integrated layout management.
+        
+        Requirements:
+        - 9.1: Use LayoutManager for responsive layout
+        - 1.1, 1.2, 1.3, 1.4: Status bar integration
+        - 3.1, 3.2: Hints bar integration
+        """
         self._running = True
+        
+        # Initialize status bar with current state
+        # Requirements: 1.1, 1.3, 1.4 - Status bar with session info
+        self._update_status_bar()
+        
+        # Show welcome banner (uses LayoutManager internally)
         self._renderer.print_welcome()
         self._ensure_session()
         
-        # Print startup tips
-        self._renderer.print("[dim]Tips:[/dim]")
-        self._renderer.print("[dim]1. Ask questions, edit files, or run commands[/dim]")
-        self._renderer.print("[dim]2. Use @file to include file contents[/dim]")
-        self._renderer.print("[dim]3. Use /help for more information[/dim]")
+        # Print hints bar after welcome
+        # Requirements: 3.1 - Display hints bar
+        if self._layout_manager.should_show_element("hints_bar"):
+            self._hints_bar.print(centered=True)
+        
+        # Print startup tips (compact in narrow terminals)
+        if not self._layout_manager.is_compact_mode:
+            self._renderer.print("[dim]Tips:[/dim]")
+            self._renderer.print("[dim]1. Ask questions, edit files, or run commands[/dim]")
+            self._renderer.print("[dim]2. Use @file to include file contents[/dim]")
+            self._renderer.print("[dim]3. Use /help for more information[/dim]")
         self._renderer.print()
         
         while self._running:
             try:
+                # Update status bar before each prompt
+                # Requirements: 1.3, 1.4 - Real-time updates
+                self._update_status_bar()
+                
                 user_input = self._input.get_input(
                     prompt=self._get_prompt()
                 )
@@ -172,7 +237,10 @@ class CLI:
             pass
     
     def _handle_command_sync(self, command: str, args: str) -> None:
-        """Handle a slash command synchronously."""
+        """Handle a slash command synchronously.
+        
+        Requirements: 1.3 - Update status bar when provider or mode changes
+        """
         result = self._commands.execute(
             command,
             args,
@@ -187,6 +255,8 @@ class CLI:
         if result.should_clear:
             self._renderer.clear()
             self._renderer.print_welcome()
+            # Update status bar after clear
+            self._update_status_bar()
             return
         
         if result.message:
@@ -194,9 +264,73 @@ class CLI:
                 self._renderer.print_error(result.message)
             else:
                 self._renderer.print_markdown(result.message)
+        
+        # Update status bar after command execution (mode/provider may have changed)
+        # Requirements: 1.3 - Immediately update when provider or mode changes
+        self._update_status_bar()
+    
+    def _update_status_bar(self) -> None:
+        """Update the status bar with current session state.
+        
+        Requirements: 1.1, 1.3, 1.4 - Status bar updates
+        """
+        session = self._sessions.current_session
+        
+        # Get session name and branch
+        session_name = "new"
+        branch = "main"
+        if session:
+            session_name = getattr(session, 'name', 'new') or 'new'
+            # Try to get git branch
+            try:
+                git_dir = os.path.join(os.getcwd(), '.git')
+                if os.path.isdir(git_dir):
+                    head_file = os.path.join(git_dir, 'HEAD')
+                    if os.path.isfile(head_file):
+                        with open(head_file, 'r') as f:
+                            ref = f.read().strip()
+                            if ref.startswith('ref: refs/heads/'):
+                                branch = ref[16:]
+            except Exception:
+                pass
+        
+        # Get mode info
+        mode_slug = self.current_mode
+        mode_config = self._prompt_builder.mode_manager.get(mode_slug)
+        
+        # Get provider info
+        provider = self._config.llm.provider
+        model = self._config.llm.model
+        free_providers = ["qwen", "gemini", "ollama"]
+        is_free = provider in free_providers
+        
+        # Calculate context percentage (estimate based on session messages)
+        context_percent = 0
+        if session:
+            messages = session.get_context() if hasattr(session, 'get_context') else []
+            # Rough estimate: assume 4096 token context, 4 chars per token
+            total_chars = sum(len(str(m.get('content', ''))) for m in messages)
+            estimated_tokens = total_chars // 4
+            max_tokens = self._config.llm.max_tokens or 4096
+            context_percent = min(100, int((estimated_tokens / max_tokens) * 100))
+        
+        # Update status bar
+        self._status_bar.update(
+            session_name=session_name,
+            branch=branch,
+            mode_icon=mode_config.icon,
+            mode_name=mode_config.name,
+            provider=provider,
+            model=model,
+            is_free=is_free,
+            context_percent=context_percent
+        )
     
     def _get_prompt(self) -> str:
-        """Get the input prompt string with model info and current mode."""
+        """Get the input prompt string with model info and current mode.
+        
+        Requirements: 9.2 - Compact mode support for narrow terminals
+        """
         cwd = os.getcwd()
         # Show shortened path in prompt
         home = os.path.expanduser('~')
@@ -208,6 +342,10 @@ class CLI:
         parts = short_path.split('/')
         if len(parts) > 3:
             short_path = '.../' + '/'.join(parts[-2:])
+        
+        # In compact mode, use even shorter path
+        if self._layout_manager.is_compact_mode and len(short_path) > 20:
+            short_path = self._layout_manager.truncate_text(short_path, 20)
         
         # Print model info above prompt with current mode
         provider = self._config.llm.provider.capitalize()
@@ -222,9 +360,15 @@ class CLI:
         # Get current mode info
         mode_slug = self.current_mode
         mode_config = self._prompt_builder.mode_manager.get(mode_slug)
-        mode_display = f" | [yellow]{mode_config.icon} {mode_config.name}[/yellow]"
         
-        self._renderer.print(f"[cyan]{provider}[/cyan] / [green]{model}[/green]{tier}{mode_display}")
+        # In compact mode, show abbreviated info
+        if self._layout_manager.is_compact_mode:
+            # Abbreviated display for narrow terminals
+            mode_display = f" | [yellow]{mode_config.icon}[/yellow]"
+            self._renderer.print(f"[cyan]{provider[:4]}[/cyan]/[green]{model[:10]}[/green]{mode_display}")
+        else:
+            mode_display = f" | [yellow]{mode_config.icon} {mode_config.name}[/yellow]"
+            self._renderer.print(f"[cyan]{provider}[/cyan] / [green]{model}[/green]{tier}{mode_display}")
         
         return f"[{short_path}] > "
     
@@ -327,8 +471,16 @@ class CLI:
             # Update tool executor working directory
             self._tools.working_dir = os.getcwd()
             
+            # Start session tracking for status footer
+            # Requirements: 8.1 - Add status footer rendering after response completion
+            self._tool_action_mapper.start_session()
+            
             # Build context with system message including current directory
             context = self._build_context_with_tools(session)
+            
+            # Determine if provider is free-tier for status footer
+            free_providers = ["qwen", "gemini", "ollama"]
+            is_free_tier = self._config.llm.provider in free_providers
             
             # Providers without native tool support - use simple streaming
             # Note: Gemini supports native tool calling via functionCall, so it uses _get_response_with_tools
@@ -337,6 +489,14 @@ class CLI:
                 await self._get_streaming_response(provider, context, session)
             else:
                 await self._get_response_with_tools(provider, context, session)
+            
+            # Render status footer after response completion
+            # Requirements: 8.1 - Add status footer rendering after response completion
+            self._tool_action_mapper.render_status_footer(is_free_tier=is_free_tier)
+            
+            # Update status bar after response (context may have changed)
+            # Requirements: 1.4 - Update context percentage in real-time
+            self._update_status_bar()
                 
         except Exception as e:
             error_msg = str(e) if str(e) else f"{type(e).__name__}: {repr(e)}"
@@ -420,6 +580,30 @@ class CLI:
     def prompt_builder(self) -> PromptBuilder:
         """Get the prompt builder instance."""
         return self._prompt_builder
+    
+    @property
+    def layout_manager(self) -> LayoutManager:
+        """Get the layout manager instance.
+        
+        Requirements: 9.1 - Access to layout management
+        """
+        return self._layout_manager
+    
+    @property
+    def status_bar(self) -> StatusBar:
+        """Get the status bar instance.
+        
+        Requirements: 1.1 - Access to status bar
+        """
+        return self._status_bar
+    
+    @property
+    def hints_bar(self) -> HintsBar:
+        """Get the hints bar instance.
+        
+        Requirements: 3.1 - Access to hints bar
+        """
+        return self._hints_bar
     
     async def _stream_response(self, provider, context: list, session) -> None:
         """Stream response from LLM with live reasoning display."""
@@ -618,17 +802,17 @@ class CLI:
                 # No tools and no content - just break
                 break
             
-            # NOTE: Response was already shown during streaming in the Live panel.
-            # The Live panel persists after stopping, so don't print again.
+            # Print final response panel (transient=True means live content was removed)
             if final_content:
+                self._renderer.print_message(final_content, role="assistant")
                 session.add_message("assistant", final_content)
             break
     
     def _execute_tool_call(self, call: ParsedToolCall) -> str:
-        """Execute a parsed tool call with consistent visual feedback.
+        """Execute a parsed tool call with action cards visual feedback.
         
-        Uses MessageRenderer.display_tool_call() and display_tool_result() for
-        consistent, deduplicated tool display across all providers.
+        Uses ToolActionMapper to generate action cards for tool calls,
+        providing rich visual feedback for file operations, searches, etc.
         
         Args:
             call: The parsed tool call to execute.
@@ -636,7 +820,7 @@ class CLI:
         Returns:
             A string describing the result for inclusion in the conversation.
             
-        Requirements: 7.4 - Work with existing ToolExecutor and ToolParser components
+        Requirements: 8.1, 8.2 - Automatically generate action cards for tool execution
         """
         tool_name = call.name
         arguments = call.arguments
@@ -650,55 +834,38 @@ class CLI:
         # Normalize arguments - handle both positional (arg0, arg1) and named arguments
         normalized_args = self._normalize_tool_arguments(tool_name, arguments)
         
-        # Create a unique ID for deduplication (hash of name + sorted args)
-        import hashlib
-        args_str = str(sorted(normalized_args.items()))
-        tool_id = hashlib.md5(f"{tool_name}:{args_str}".encode()).hexdigest()[:12]
-        
-        # Create ToolCallRecord for MessageRenderer
-        tool_record = ToolCallRecord(
-            id=tool_id,
-            name=tool_name,
-            arguments=normalized_args,
-            result=None,
-            success=True,
-            displayed=False
-        )
+        # Update tool action mapper working directory
+        self._tool_action_mapper.working_dir = self._tools.working_dir
         
         # Skip invalid/hallucinated tool names
         if tool_name not in valid_tools:
-            tool_record.result = f"Unknown tool '{tool_name}'"
-            tool_record.success = False
-            # Use MessageRenderer for display
-            self._renderer._message_renderer.display_tool_call(tool_record)
-            self._renderer._message_renderer.display_tool_result(tool_record)
             return f"Error: Unknown tool '{tool_name}'"
         
-        # Display tool call header using MessageRenderer
-        self._renderer._message_renderer.display_tool_call(tool_record)
+        # Capture state before execution for accurate create/update detection
+        # Requirements: 8.1 - Detect file creation vs update based on file existence
+        pre_state = self._tool_action_mapper.render_tool_action_before(
+            tool_name, normalized_args
+        )
         
         try:
             result = self._tools.execute(tool_name, normalized_args)
             
             # Check if the tool executor returned an error
-            if result.startswith("Error:"):
-                tool_record.result = result
-                tool_record.success = False
-                self._renderer._message_renderer.display_tool_result(tool_record)
-                return f"{tool_name}: {result}"
+            success = not result.startswith("Error:")
             
-            # Set successful result
-            tool_record.result = result
-            tool_record.success = True
-            self._renderer._message_renderer.display_tool_result(tool_record)
+            # Render action card after execution with captured state
+            # Requirements: 8.1, 8.2 - Generate appropriate action cards
+            self._tool_action_mapper.render_tool_action_after(
+                pre_state, result=result, success=success
+            )
             
             return f"{tool_name}: {result}"
             
         except Exception as e:
-            # Display failure with error message
-            tool_record.result = str(e)
-            tool_record.success = False
-            self._renderer._message_renderer.display_tool_result(tool_record)
+            # Render action card for failed execution
+            self._tool_action_mapper.render_tool_action_after(
+                pre_state, result=str(e), success=False
+            )
             return f"{tool_name} error: {e}"
     
     def _normalize_tool_arguments(self, tool_name: str, arguments: dict) -> dict:
@@ -830,10 +997,8 @@ class CLI:
                     self._renderer.stop_live_stream()
                     messages.append(message)
                     
-                    # Add visual header if multiple tool calls
-                    # Requirements: 2.2 - Display each tool call in deterministic order with visual separators
-                    if len(tool_calls) > 1:
-                        self._renderer.print_tool_section_header(len(tool_calls))
+                    # Update tool action mapper working directory
+                    self._tool_action_mapper.working_dir = self._tools.working_dir
                     
                     for i, tool_call in enumerate(tool_calls):
                         func = tool_call.get("function", {})
@@ -845,40 +1010,30 @@ class CLI:
                         except json.JSONDecodeError:
                             args = {}
                         
-                        # Create ToolCallRecord for MessageRenderer
-                        # Requirements: 7.4 - Work with existing ToolExecutor
-                        tool_record = ToolCallRecord(
-                            id=tool_id,
-                            name=tool_name,
-                            arguments=args,
-                            result=None,
-                            success=True,
-                            displayed=False
+                        # Capture state before execution for accurate create/update detection
+                        # Requirements: 8.1 - Detect file creation vs update based on file existence
+                        pre_state = self._tool_action_mapper.render_tool_action_before(
+                            tool_name, args
                         )
-                        
-                        # Display tool call using MessageRenderer
-                        self._renderer._message_renderer.display_tool_call(tool_record)
                         
                         # Execute the tool
                         try:
                             result = self._tools.execute(tool_name, args)
-                            tool_record.result = result
-                            tool_record.success = not result.startswith("Error:")
+                            success = not result.startswith("Error:")
                         except Exception as e:
-                            tool_record.result = str(e)
-                            tool_record.success = False
+                            result = str(e)
+                            success = False
                         
-                        # Display tool result using MessageRenderer
-                        self._renderer._message_renderer.display_tool_result(tool_record)
-                        
-                        # Add visual separator between multiple tool calls
-                        if len(tool_calls) > 1 and i < len(tool_calls) - 1:
-                            self._renderer.print_tool_separator()
+                        # Render action card after execution with captured state
+                        # Requirements: 8.1, 8.2 - Generate appropriate action cards
+                        self._tool_action_mapper.render_tool_action_after(
+                            pre_state, result=result, success=success
+                        )
                         
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tool_id,
-                            "content": tool_record.result or ""
+                            "content": result or ""
                         })
                     continue
                 
@@ -900,9 +1055,9 @@ class CLI:
                     response_content = reasoning_content
                     reasoning_content = ""
                 
-                # NOTE: Response was already displayed during streaming in the Live panel.
-                # Just save to session, don't print again to avoid duplicates.
+                # Print final response panel (transient=True means live content was removed)
                 if response_content:
+                    self._renderer.print_message(response_content, role="assistant")
                     session.add_message("assistant", response_content, tokens=len(response_content)//4)
                     self._sessions.save_session(session)
                     
