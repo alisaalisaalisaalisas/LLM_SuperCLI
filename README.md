@@ -2,7 +2,9 @@
 
 <div align="center">
 
-![LLM SuperCLI Banner](image.png)
+<img width="1177" height="467" alt="image" src="https://github.com/user-attachments/assets/5331b857-ffc6-44e5-a381-7de0efa1b150" />
+
+
 
 **A powerful multi-provider LLM command line interface**
 
