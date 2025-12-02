@@ -2,7 +2,8 @@
 
 <div align="center">
 
-<img width="1462" height="543" alt="image" src="https://github.com/user-attachments/assets/6bdecf72-56db-431a-b0a5-05178780dce3" />
+<img width="1177" height="467" alt="image" src="https://github.com/user-attachments/assets/5331b857-ffc6-44e5-a381-7de0efa1b150" />
+
 
 
 **A powerful multi-provider LLM command line interface**
