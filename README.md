@@ -3,7 +3,6 @@
 <div align="center">
 
 ![LLM SuperCLI](llm.png)
-<img width="1909" height="562" alt="Screenshot_1" src="https://github.com/user-attachments/assets/205939f9-a561-4228-af39-42eda272f9cf" />
 
 **A powerful multi-provider LLM command line interface**
 
