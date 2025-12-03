@@ -20,6 +20,10 @@ class ActionType(Enum):
     DONE = "done"
     STATUS = "status"
     ERROR = "error"
+    TOOL_CALL = "tool_call"
+    TOOL_RESULT = "tool_result"
+    TOOL_WARNING = "tool_warning"
+    TOOL_PROGRESS = "tool_progress"
 
 
 @dataclass
@@ -161,3 +165,89 @@ class ErrorAction(Action):
     def __post_init__(self) -> None:
         if not hasattr(self, 'type') or self.type != ActionType.ERROR:
             object.__setattr__(self, 'type', ActionType.ERROR)
+
+
+@dataclass
+class ToolCallAction(Action):
+    """
+    Action representing a tool invocation starting.
+    
+    Attributes:
+        tool_name: Name of the tool being called
+        parameters: Dictionary of tool parameters
+        args_preview: Optional formatted preview of arguments
+        
+    Requirements: 4.1 - Display tool name and parameters when invocation starts
+    """
+    tool_name: str = ""
+    parameters: Dict[str, Any] = field(default_factory=dict)
+    args_preview: str = ""
+    
+    def __post_init__(self) -> None:
+        if not hasattr(self, 'type') or self.type != ActionType.TOOL_CALL:
+            object.__setattr__(self, 'type', ActionType.TOOL_CALL)
+
+
+@dataclass
+class ToolResultAction(Action):
+    """
+    Action representing a tool execution result.
+    
+    Attributes:
+        tool_name: Name of the tool that was called
+        result: Result string from tool execution
+        success: Whether the tool call succeeded
+        result_preview: Optional truncated preview of result
+        
+    Requirements: 4.2 - Display result/confirmation when tool completes
+    """
+    tool_name: str = ""
+    result: str = ""
+    success: bool = True
+    result_preview: str = ""
+    
+    def __post_init__(self) -> None:
+        if not hasattr(self, 'type') or self.type != ActionType.TOOL_RESULT:
+            object.__setattr__(self, 'type', ActionType.TOOL_RESULT)
+
+
+@dataclass
+class ToolWarningAction(Action):
+    """
+    Action representing a warning for skipped tool invocation.
+    
+    Attributes:
+        message: Warning message describing the skipped action
+        suggested_tool: The tool that should have been invoked
+        detected_action: The action the LLM described but didn't invoke
+        
+    Requirements: 4.4 - Warn user when tool invocation is skipped or simulated
+    """
+    message: str = ""
+    suggested_tool: str = ""
+    detected_action: str = ""
+    
+    def __post_init__(self) -> None:
+        if not hasattr(self, 'type') or self.type != ActionType.TOOL_WARNING:
+            object.__setattr__(self, 'type', ActionType.TOOL_WARNING)
+
+
+@dataclass
+class ToolProgressAction(Action):
+    """
+    Action representing progress in a multi-tool sequence.
+    
+    Attributes:
+        current: Current tool number (1-indexed)
+        total: Total number of tools in sequence
+        tool_name: Name of the current tool
+        
+    Requirements: 4.3 - Show progress for multi-tool sequences
+    """
+    current: int = 0
+    total: int = 0
+    tool_name: str = ""
+    
+    def __post_init__(self) -> None:
+        if not hasattr(self, 'type') or self.type != ActionType.TOOL_PROGRESS:
+            object.__setattr__(self, 'type', ActionType.TOOL_PROGRESS)

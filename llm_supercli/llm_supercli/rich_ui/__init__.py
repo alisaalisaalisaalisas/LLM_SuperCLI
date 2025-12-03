@@ -19,8 +19,19 @@ from .action_models import (
     ThinkingAction,
     DoneAction,
     ErrorAction,
+    ToolCallAction,
+    ToolResultAction,
+    ToolWarningAction,
+    ToolProgressAction,
 )
 from .tool_action_mapper import ToolActionMapper
+from .reasoning import ReasoningDisplay, ReasoningChunk, get_reasoning_display, display_reasoning
+from .skipped_tool_detector import (
+    SkippedToolDetector,
+    SkippedToolDetection,
+    get_skipped_tool_detector,
+    detect_skipped_tools,
+)
 
 __all__ = [
     'RichRenderer', 'get_renderer',
@@ -46,6 +57,14 @@ __all__ = [
     'ThinkingAction',
     'DoneAction',
     'ErrorAction',
+    'ToolCallAction',
+    'ToolResultAction',
+    'ToolWarningAction',
+    'ToolProgressAction',
     # Tool action mapper
     'ToolActionMapper',
+    # Reasoning display
+    'ReasoningDisplay', 'ReasoningChunk', 'get_reasoning_display', 'display_reasoning',
+    # Skipped tool detector
+    'SkippedToolDetector', 'SkippedToolDetection', 'get_skipped_tool_detector', 'detect_skipped_tools',
 ]

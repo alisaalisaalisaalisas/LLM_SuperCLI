@@ -21,7 +21,7 @@ from .command_system import CommandParser, get_command_registry
 from .history import get_session_store
 from .llm import get_provider_registry
 from .mcp import get_mcp_manager
-from .io_handlers import BashRunner, FileLoader
+from .io_handlers import BashRunner, FileLoader, get_project_analysis_enforcer, get_file_creation_enforcer
 from .prompts import PromptBuilder, PromptConfig, SectionManager, ContextBuilder
 from .prompts.sections import (
     RoleSection,
@@ -43,6 +43,7 @@ from .prompts.tools import (
     XMLStyleParser,
     ParsedToolCall,
 )
+from .rich_ui.skipped_tool_detector import detect_skipped_tools
 
 
 class CLI:
@@ -191,7 +192,7 @@ class CLI:
         # Print hints bar after welcome
         # Requirements: 3.1 - Display hints bar
         if self._layout_manager.should_show_element("hints_bar"):
-            self._hints_bar.print(centered=True)
+            self._hints_bar.print(centered=False)
         
         self._renderer.print()
         
@@ -219,6 +220,13 @@ class CLI:
     
     def _process_input_sync(self, user_input: str) -> None:
         """Process user input synchronously, only using async when necessary."""
+        # Check for bash mode trigger (just "!")
+        if user_input.strip() == "!":
+            bash_cmd = self._get_bash_mode_input()
+            if bash_cmd:
+                asyncio.run(self._handle_shell(bash_cmd))
+            return
+        
         parsed = self._parser.parse(user_input)
         
         if parsed.type == "command":
@@ -229,6 +237,28 @@ class CLI:
             asyncio.run(self._handle_message(parsed.message, parsed.files))
         elif parsed.type == "empty":
             pass
+    
+    def _get_bash_mode_input(self) -> str:
+        """Show bash mode UI and get command input."""
+        from rich.panel import Panel
+        from rich.text import Text
+        
+        # Show violet bordered panel for bash mode
+        bash_panel = Panel(
+            Text("enter bash command...", style="dim italic"),
+            border_style="rgb(138,43,226)",
+            title="[rgb(138,43,226)]![/rgb(138,43,226)]",
+            title_align="left",
+            padding=(0, 1),
+        )
+        self._renderer.console.print(bash_panel)
+        
+        # Get bash command input
+        try:
+            cmd = input()
+            return cmd.strip()
+        except (EOFError, KeyboardInterrupt):
+            return ""
     
     def _handle_command_sync(self, command: str, args: str) -> None:
         """Handle a slash command synchronously.
@@ -346,30 +376,26 @@ class CLI:
         model = self._config.llm.model
         # Only show Free for OAuth providers
         free_providers = ["qwen", "gemini", "ollama"]
-        if self._config.llm.provider in free_providers:
-            tier = " | [magenta]Free[/magenta]"
-        else:
-            tier = ""
-        
         # Get current mode info
         mode_slug = self.current_mode
         mode_config = self._prompt_builder.mode_manager.get(mode_slug)
         
         # Get context percentage for display
         context_percent = self._status_bar.data.context_percent
-        context_style = "green" if context_percent < 50 else "yellow" if context_percent < 80 else "red"
-        context_display = f" | [{context_style}]{context_percent}%[/{context_style}]"
+        context_display = f" [rgb(138,43,226)]/[/rgb(138,43,226)] [rgb(138,43,226)]{context_percent}%[/rgb(138,43,226)]"
         
         # In compact mode, show abbreviated info
         if self._layout_manager.is_compact_mode:
             # Abbreviated display for narrow terminals
-            mode_display = f" | [yellow]{mode_config.icon}[/yellow]"
-            self._renderer.print(f"[cyan]{provider[:4]}[/cyan]/[green]{model[:10]}[/green]{mode_display}{context_display}")
+            mode_display = f" [rgb(138,43,226)]/[/rgb(138,43,226)] [rgb(138,43,226)]{mode_config.icon}[/rgb(138,43,226)]"
+            self._renderer.print(f"[cyan]{provider[:4]}[/cyan] [rgb(138,43,226)]/[/rgb(138,43,226)] [rgb(138,43,226)]{model[:10]}[/rgb(138,43,226)]{mode_display}{context_display}")
         else:
-            mode_display = f" | [yellow]{mode_config.icon} {mode_config.name}[/yellow]"
-            self._renderer.print(f"[cyan]{provider}[/cyan] / [green]{model}[/green]{tier}{mode_display}{context_display}")
+            mode_display = f" [rgb(138,43,226)]/[/rgb(138,43,226)] [rgb(138,43,226)]{mode_config.icon} {mode_config.name}[/rgb(138,43,226)]"
+            self._renderer.print(f"[cyan]{provider}[/cyan] [rgb(138,43,226)]/[/rgb(138,43,226)] [rgb(138,43,226)]{model}[/rgb(138,43,226)]{mode_display}{context_display}")
         
-        return f"[{short_path}] > "
+        # Return HTML-formatted prompt for prompt_toolkit styling
+        from prompt_toolkit.formatted_text import HTML
+        return HTML(f'<path>[{short_path}] &gt; </path>')
     
     def _ensure_session(self) -> None:
         """Ensure there's an active session."""
@@ -452,6 +478,22 @@ class CLI:
         session.add_message("user", message)
         self._renderer.print_message(message, role="user")
         
+        # Detect if this is a project analysis request
+        # Requirements: 1.1 - Detect "analyze project" type requests
+        enforcer = get_project_analysis_enforcer()
+        analysis_request = enforcer.is_analysis_request(message)
+        
+        # Detect if this is a file creation request
+        # Requirements: 2.1 - Detect "create file/project" type requests
+        file_creation_enforcer = get_file_creation_enforcer()
+        file_creation_enforcer.working_dir = os.getcwd()
+        file_creation_enforcer.start_session()
+        creation_request = file_creation_enforcer.is_creation_request(message)
+        
+        # Connect file creation enforcer to tool action mapper for tracking
+        # Requirements: 2.4 - Track created files for confirmation display
+        self._tool_action_mapper.file_creation_enforcer = file_creation_enforcer
+        
         try:
             provider = self._providers.get(self._config.llm.provider)
             if not provider:
@@ -474,6 +516,10 @@ class CLI:
             # Requirements: 8.1 - Add status footer rendering after response completion
             self._tool_action_mapper.start_session()
             
+            # Reset tool call tracking for project analysis verification
+            # Requirements: 1.1 - Track tool calls to verify list_directory was invoked
+            self._session_tool_calls: list[str] = []
+            
             # Build context with system message including current directory
             context = self._build_context_with_tools(session)
             
@@ -488,6 +534,42 @@ class CLI:
                 await self._get_streaming_response(provider, context, session)
             else:
                 await self._get_response_with_tools(provider, context, session)
+            
+            # Verify list_directory was called for project analysis requests
+            # Requirements: 1.1 - Verify list_directory was invoked before analysis response
+            if analysis_request.detected and analysis_request.confidence >= 0.6:
+                is_valid, warning = enforcer.verify_list_directory_called(
+                    self._session_tool_calls, message
+                )
+                if not is_valid and warning:
+                    self._renderer.print_tool_warning(
+                        message=warning,
+                        suggested_tool="list_directory",
+                        detected_action="project analysis"
+                    )
+            
+            # Verify write_file was called for file creation requests
+            # Requirements: 2.1 - Verify write_file was invoked for file creation
+            if creation_request.detected and creation_request.confidence >= 0.6:
+                is_valid, warning = file_creation_enforcer.verify_write_file_called(
+                    self._session_tool_calls, message
+                )
+                if not is_valid and warning:
+                    self._renderer.print_tool_warning(
+                        message=warning,
+                        suggested_tool="write_file",
+                        detected_action="file creation"
+                    )
+                
+                # Show file creation confirmation if files were created
+                # Requirements: 2.4 - Confirm which files were created
+                created_files = file_creation_enforcer.get_created_files_summary()
+                created_dirs = file_creation_enforcer.get_created_directories_summary()
+                if created_files or created_dirs:
+                    self._renderer.print_file_creation_summary(
+                        files=created_files,
+                        directories=created_dirs
+                    )
             
             # Status footer removed - time/free info now shown in prompt line
             
@@ -728,6 +810,11 @@ class CLI:
             response_content = parsed.response
             reasoning_content = parsed.reasoning
             
+            # Display reasoning content if present (before tool execution)
+            # Requirements: 5.1 - Display reasoning in yellow panel
+            if reasoning_content and reasoning_content.strip():
+                self._renderer.print_reasoning(reasoning_content)
+            
             # Parse tool calls using the modular ToolParser
             # Check both response content AND reasoning content (model sometimes puts tools in thinking)
             content = response_content or ""
@@ -783,10 +870,16 @@ class CLI:
             num_calls = len(unique_calls)
             
             # Add visual header if multiple tool calls
+            # Requirements: 4.3 - Show progress for multi-tool sequences
             if num_calls > 1:
                 self._renderer.print_tool_section_header(num_calls)
             
             for i, call in enumerate(unique_calls):
+                # Show progress for multi-tool sequences
+                # Requirements: 4.3 - Show progress indicator for multi-tool sequences
+                if num_calls > 1:
+                    self._renderer.print_tool_progress(i + 1, num_calls, call.name)
+                
                 result_str = self._execute_tool_call(call)
                 tool_results.append(result_str)
                 
@@ -825,11 +918,12 @@ class CLI:
                 final_content = re.sub(r'<\s*/\s*\w+\s*>', '', final_content).strip()
                 final_content = re.sub(r'^\s*<\s*$', '', final_content, flags=re.MULTILINE).strip()
             
-            # Check for empty or useless responses (just punctuation, very short, filenames only, etc.)
+            # Check for empty or useless responses (just punctuation, filenames only, etc.)
+            # Note: Don't filter short responses - simple greetings like "hi" are valid
             stripped_content = final_content.strip() if final_content else ""
             is_useless_response = (
                 not final_content or 
-                len(stripped_content) < 20 or  # Increased threshold - real responses are longer
+                len(stripped_content) < 2 or  # Only filter truly empty responses
                 re.match(r'^[\s\.\,\!\?\-\_\*]+$', stripped_content) or
                 # Just a filename or path (no actual content)
                 re.match(r'^[\w\-\_\.\/\\]+\.(py|txt|md|json|toml|yaml|yml|js|ts|html|css)$', stripped_content, re.IGNORECASE) or
@@ -860,13 +954,15 @@ class CLI:
                 continue
             
             # Check if model said it would do something but didn't follow through
-            # Common patterns: "Let me...", "I'll...", "I will...", "First, I'll..."
+            # Common patterns: "Let me...", "I'll...", "I will...", "Now I'll..."
             incomplete_patterns = [
-                r"(?i)\blet me\b.*\b(check|look|analyze|examine|read|list|search|find)\b",
-                r"(?i)\bi'?ll\b.*\b(check|look|analyze|examine|read|list|search|find)\b",
-                r"(?i)\bi will\b.*\b(check|look|analyze|examine|read|list|search|find)\b",
+                r"(?i)\blet me\b.*\b(check|look|analyze|examine|read|list|search|find|create|write|make)\b",
+                r"(?i)\bi'?ll\b.*\b(check|look|analyze|examine|read|list|search|find|create|write|make)\b",
+                r"(?i)\bi will\b.*\b(check|look|analyze|examine|read|list|search|find|create|write|make)\b",
                 r"(?i)\bfirst,?\s+i'?ll\b",
-                r"(?i)\blet's\b.*\b(check|look|analyze|examine|read|list|search|find)\b",
+                r"(?i)\blet's\b.*\b(check|look|analyze|examine|read|list|search|find|create|write|make)\b",
+                r"(?i)\bnow i'?ll\b.*\b(create|write|make|add)\b",
+                r"(?i)\bnext,?\s+i'?ll\b",
             ]
             
             # Check if model claims it already answered but response is too short
@@ -917,6 +1013,21 @@ class CLI:
                 self._renderer.print_message(final_content, role="assistant")
             if final_content:
                 session.add_message("assistant", final_content)
+            
+            # Detect and warn about skipped tool invocations
+            # Requirements: 4.4 - Warn user when tool invocation is skipped
+            if final_content and not tool_results:
+                # Get list of tools that were actually called
+                tools_called = [call.name for call in unique_calls] if unique_calls else []
+                skipped_detections = detect_skipped_tools(final_content, tools_called)
+                
+                for detection in skipped_detections:
+                    if detection.detected and detection.confidence >= 0.6:
+                        self._renderer.print_tool_warning(
+                            message="The assistant described an action but did not execute it.",
+                            suggested_tool=detection.suggested_tool,
+                            detected_action=detection.action_description
+                        )
             break
     
     def _execute_tool_call(self, call: ParsedToolCall) -> str:
@@ -951,6 +1062,11 @@ class CLI:
         # Skip invalid/hallucinated tool names
         if tool_name not in valid_tools:
             return f"Error: Unknown tool '{tool_name}'"
+        
+        # Track tool call for project analysis verification
+        # Requirements: 1.1 - Track tool calls to verify list_directory was invoked
+        if hasattr(self, '_session_tool_calls'):
+            self._session_tool_calls.append(tool_name)
         
         # Capture state before execution for accurate create/update detection
         # Requirements: 8.1 - Detect file creation vs update based on file existence
@@ -1121,6 +1237,11 @@ class CLI:
                         except json.JSONDecodeError:
                             args = {}
                         
+                        # Track tool call for project analysis verification
+                        # Requirements: 1.1 - Track tool calls to verify list_directory was invoked
+                        if hasattr(self, '_session_tool_calls'):
+                            self._session_tool_calls.append(tool_name)
+                        
                         # Capture state before execution for accurate create/update detection
                         # Requirements: 8.1 - Detect file creation vs update based on file existence
                         pre_state = self._tool_action_mapper.render_tool_action_before(
@@ -1169,13 +1290,15 @@ class CLI:
                     reasoning_content = ""
                 
                 # Check if model said it would do something but didn't follow through
-                # Common patterns: "Let me...", "I'll...", "I will...", "First, I'll..."
+                # Common patterns: "Let me...", "I'll...", "I will...", "Now I'll..."
                 incomplete_patterns = [
-                    r"(?i)\blet me\b.*\b(check|look|analyze|examine|read|list|search|find)\b",
-                    r"(?i)\bi'?ll\b.*\b(check|look|analyze|examine|read|list|search|find)\b",
-                    r"(?i)\bi will\b.*\b(check|look|analyze|examine|read|list|search|find)\b",
+                    r"(?i)\blet me\b.*\b(check|look|analyze|examine|read|list|search|find|create|write|make)\b",
+                    r"(?i)\bi'?ll\b.*\b(check|look|analyze|examine|read|list|search|find|create|write|make)\b",
+                    r"(?i)\bi will\b.*\b(check|look|analyze|examine|read|list|search|find|create|write|make)\b",
                     r"(?i)\bfirst,?\s+i'?ll\b",
-                    r"(?i)\blet's\b.*\b(check|look|analyze|examine|read|list|search|find)\b",
+                    r"(?i)\blet's\b.*\b(check|look|analyze|examine|read|list|search|find|create|write|make)\b",
+                    r"(?i)\bnow i'?ll\b.*\b(create|write|make|add)\b",
+                    r"(?i)\bnext,?\s+i'?ll\b",
                 ]
                 
                 is_incomplete = False
@@ -1203,6 +1326,19 @@ class CLI:
                     
                     if self._config.ui.show_token_count:
                         self._renderer.print(f"[dim]{len(response_content)//4} tokens[/dim]")
+                
+                # Detect and warn about skipped tool invocations
+                # Requirements: 4.4 - Warn user when tool invocation is skipped
+                if response_content:
+                    skipped_detections = detect_skipped_tools(response_content, [])
+                    
+                    for detection in skipped_detections:
+                        if detection.detected and detection.confidence >= 0.6:
+                            self._renderer.print_tool_warning(
+                                message="The assistant described an action but did not execute it.",
+                                suggested_tool=detection.suggested_tool,
+                                detected_action=detection.action_description
+                            )
                 
                 break
                 

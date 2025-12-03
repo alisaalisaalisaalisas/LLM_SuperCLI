@@ -370,11 +370,18 @@ class XMLStyleParser(FormatParser):
     - <function_calls><invoke name="tool"><parameter name="p">value</parameter></invoke></function_calls>
     - <tool_call><name>tool</name><arguments><arg>value</arg></arguments></tool_call>
     - <invoke name="tool"><parameter name="param">value</parameter></invoke>
+    - <tool_name><param>value</param></tool_name> (direct tool name as tag)
     
     Handles nested XML and CDATA content.
     
     **Feature: qwen-tool-context-fix**
     """
+    
+    # Known valid tool names for direct tag format
+    _VALID_TOOLS = frozenset({
+        'read_file', 'write_file', 'list_directory', 'create_directory',
+        'run_command', 'get_current_directory',
+    })
     
     # Pattern to find function_calls blocks
     _FUNCTION_CALLS_PATTERN = re.compile(
@@ -397,6 +404,12 @@ class XMLStyleParser(FormatParser):
     # Pattern for standalone invoke (without function_calls wrapper)
     _STANDALONE_INVOKE_PATTERN = re.compile(
         r'<invoke\s+name\s*=\s*["\']([^"\']+)["\']\s*>(.*?)</invoke>',
+        re.DOTALL | re.IGNORECASE
+    )
+    
+    # Pattern for direct tool name as XML tag: <tool_name>...</tool_name>
+    _DIRECT_TOOL_PATTERN = re.compile(
+        r'<(read_file|write_file|list_directory|create_directory|run_command|get_current_directory)>\s*(.*?)\s*</\1>',
         re.DOTALL | re.IGNORECASE
     )
     
@@ -453,6 +466,20 @@ class XMLStyleParser(FormatParser):
                     parser_name=self.name,
                 ))
         
+        # If still no results, try direct tool name as XML tag format
+        # e.g., <list_directory><path>.</path></list_directory>
+        if not results:
+            direct_matches = self._DIRECT_TOOL_PATTERN.findall(content)
+            for tool_name, params_content in direct_matches:
+                arguments = self._parse_direct_params(params_content)
+                raw_text = f"<{tool_name}>{params_content}</{tool_name}>"
+                results.append(ParsedToolCall(
+                    name=tool_name,
+                    arguments=arguments,
+                    raw_text=raw_text,
+                    parser_name=self.name,
+                ))
+        
         return results
     
     def _parse_parameters(self, params_content: str) -> dict[str, Any]:
@@ -468,6 +495,34 @@ class XMLStyleParser(FormatParser):
         
         # Find all parameter elements
         param_matches = self._PARAMETER_PATTERN.findall(params_content)
+        
+        for param_name, param_value in param_matches:
+            # Handle CDATA content
+            value = self._extract_cdata_or_text(param_value)
+            arguments[param_name] = value
+        
+        return arguments
+    
+    def _parse_direct_params(self, params_content: str) -> dict[str, Any]:
+        """Parse parameters from direct tool tag format.
+        
+        Handles format like: <path>.</path><content>text</content>
+        
+        Args:
+            params_content: The content inside a direct tool tag.
+            
+        Returns:
+            Dictionary of parameter names to values.
+        """
+        arguments: dict[str, Any] = {}
+        
+        # Pattern to match any XML tag as a parameter: <name>value</name>
+        direct_param_pattern = re.compile(
+            r'<(\w+)>(.*?)</\1>',
+            re.DOTALL
+        )
+        
+        param_matches = direct_param_pattern.findall(params_content)
         
         for param_name, param_value in param_matches:
             # Handle CDATA content

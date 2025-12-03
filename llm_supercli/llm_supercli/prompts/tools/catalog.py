@@ -375,14 +375,92 @@ class ToolCatalog:
             "",
         ]
         
+        # Add workflow examples showing common tool sequences
+        lines.extend(self._render_workflow_examples(tools))
+        
         # Add concrete examples using actual tool names
         if tools:
-            lines.append("## Tool Examples")
+            lines.append("## Individual Tool Examples")
             lines.append("")
             
             for tool in tools:
                 lines.extend(self._render_tool_example(tool))
                 lines.append("")
+        
+        return lines
+    
+    def _render_workflow_examples(self, tools: list[ToolDefinition]) -> list[str]:
+        """Render workflow examples showing common tool sequences.
+        
+        Args:
+            tools: List of available tools.
+            
+        Returns:
+            List of lines containing workflow examples.
+        """
+        tool_names = {t.name for t in tools}
+        lines = ["## Common Workflow Examples", ""]
+        
+        # Project Analysis Workflow
+        if "list_directory" in tool_names and "read_file" in tool_names:
+            lines.extend([
+                "### Analyzing a Project",
+                "When asked to analyze a project, ALWAYS follow this sequence:",
+                "",
+                "```python",
+                "# Step 1: First, scan the directory structure",
+                "list_directory(path='.')",
+                "",
+                "# Step 2: Read key files (README, config, main entry points)",
+                "read_file(path='README.md')",
+                "read_file(path='package.json')  # or pyproject.toml, Cargo.toml, etc.",
+                "read_file(path='src/main.py')   # or index.js, main.rs, etc.",
+                "",
+                "# Step 3: Only AFTER reading files, provide your analysis",
+                "```",
+                "",
+            ])
+        
+        # File Creation Workflow
+        if "write_file" in tool_names:
+            lines.extend([
+                "### Creating Files or Projects",
+                "When asked to create files, you MUST invoke write_file for EACH file:",
+                "",
+                "```python",
+                "# Example: Creating a simple Python project",
+                "",
+                "# Step 1: Create the main file",
+                "write_file(path='main.py', content='#!/usr/bin/env python3\\n\\ndef main():\\n    print(\"Hello, World!\")\\n\\nif __name__ == \"__main__\":\\n    main()\\n')",
+                "",
+                "# Step 2: Create additional files as needed",
+                "write_file(path='requirements.txt', content='requests>=2.28.0\\npython-dotenv>=1.0.0\\n')",
+                "",
+                "# Step 3: Create a README",
+                "write_file(path='README.md', content='# My Project\\n\\nA simple Python project.\\n')",
+                "```",
+                "",
+                "**IMPORTANT**: Never just describe or explain code - you MUST use write_file to actually create it!",
+                "",
+            ])
+        
+        # Directory + File Creation Workflow
+        if "create_directory" in tool_names and "write_file" in tool_names:
+            lines.extend([
+                "### Creating Nested Project Structures",
+                "When creating files in subdirectories, create directories first:",
+                "",
+                "```python",
+                "# Step 1: Create directory structure",
+                "create_directory(path='src')",
+                "create_directory(path='tests')",
+                "",
+                "# Step 2: Create files in those directories",
+                "write_file(path='src/app.py', content='class App:\\n    def run(self):\\n        pass\\n')",
+                "write_file(path='tests/test_app.py', content='import pytest\\nfrom src.app import App\\n\\ndef test_app():\\n    app = App()\\n    assert app is not None\\n')",
+                "```",
+                "",
+            ])
         
         return lines
     
@@ -422,7 +500,7 @@ class ToolCatalog:
         example_args = []
         for param_name, param_info in props.items():
             param_type = param_info.get("type", "string")
-            sample_value = self._get_sample_value(param_name, param_type)
+            sample_value = self._get_sample_value(param_name, param_type, tool.name)
             example_args.append(f"{param_name}={sample_value}")
         
         lines.append("```")
@@ -431,23 +509,47 @@ class ToolCatalog:
         
         return lines
     
-    def _get_sample_value(self, param_name: str, param_type: str) -> str:
-        """Get a sample value for a parameter based on its name and type.
+    def _get_sample_value(self, param_name: str, param_type: str, tool_name: str = "") -> str:
+        """Get a sample value for a parameter based on its name, type, and tool context.
         
         Args:
             param_name: The parameter name.
             param_type: The parameter type.
+            tool_name: The name of the tool (for context-specific values).
             
         Returns:
             A sample value string appropriate for the parameter.
         """
-        # Common parameter name patterns
+        # Tool-specific realistic values
+        if tool_name == "list_directory":
+            if param_name == "path":
+                return "'.'"  # Current directory is the most common use case
+        
+        if tool_name == "read_file":
+            if param_name == "path":
+                return "'src/main.py'"  # Realistic file path
+        
+        if tool_name == "write_file":
+            if param_name == "path":
+                return "'src/app.py'"
+            if param_name == "content":
+                return "'#!/usr/bin/env python3\\n\\ndef main():\\n    print(\"Hello, World!\")\\n'"
+        
+        if tool_name == "create_directory":
+            if param_name == "path":
+                return "'src/components'"
+        
+        if tool_name == "run_command":
+            if param_name == "command":
+                return "'python --version'"
+        
+        # Common parameter name patterns (fallback)
         if "path" in param_name.lower():
             return "'./example.txt'"
         if "content" in param_name.lower():
-            return "'file content here'"
+            return "'# File content\\nprint(\"Hello\")\\n'"
         if "command" in param_name.lower():
-            return "'ls -la'"
+            return "'echo \"Hello World\"'"
         if "directory" in param_name.lower() or "dir" in param_name.lower():
             return "'./src'"
         

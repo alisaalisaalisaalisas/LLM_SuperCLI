@@ -5,14 +5,18 @@ This module provides the mapping between tool calls and action card rendering,
 enabling automatic generation of action cards for tool executions.
 
 Requirements: 8.1, 8.2 - Automatically generate appropriate action cards for tool execution
+Requirements: 2.4 - Track created files for confirmation display
 """
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, TYPE_CHECKING
 
 from .action_renderer import ActionRenderer
 from .action_models import ActionType
+
+if TYPE_CHECKING:
+    from ..io_handlers.file_creation_enforcer import FileCreationEnforcer
 
 
 class ToolActionMapper:
@@ -46,7 +50,8 @@ class ToolActionMapper:
     def __init__(
         self,
         action_renderer: ActionRenderer,
-        working_dir: Optional[str] = None
+        working_dir: Optional[str] = None,
+        file_creation_enforcer: Optional["FileCreationEnforcer"] = None
     ) -> None:
         """
         Initialize the ToolActionMapper.
@@ -54,12 +59,14 @@ class ToolActionMapper:
         Args:
             action_renderer: ActionRenderer instance for rendering cards
             working_dir: Working directory for resolving file paths
+            file_creation_enforcer: Optional enforcer for tracking file creations
         """
         self._renderer = action_renderer
         self._working_dir = working_dir or os.getcwd()
         self._start_time: Optional[float] = None
         self._total_tokens: Tuple[int, int] = (0, 0)
         self._total_cost: float = 0.0
+        self._file_creation_enforcer = file_creation_enforcer
     
     @property
     def working_dir(self) -> str:
@@ -70,6 +77,16 @@ class ToolActionMapper:
     def working_dir(self, value: str) -> None:
         """Set the working directory."""
         self._working_dir = value
+    
+    @property
+    def file_creation_enforcer(self) -> Optional["FileCreationEnforcer"]:
+        """Get the file creation enforcer."""
+        return self._file_creation_enforcer
+    
+    @file_creation_enforcer.setter
+    def file_creation_enforcer(self, value: "FileCreationEnforcer") -> None:
+        """Set the file creation enforcer."""
+        self._file_creation_enforcer = value
     
     def start_session(self) -> None:
         """
@@ -243,9 +260,22 @@ class ToolActionMapper:
         state = {"tool_name": tool_name, "arguments": arguments}
         
         # For write_file, capture whether file exists before write
+        # and check if directories need to be created
         if tool_name == "write_file":
             path = arguments.get("path", "")
             state["file_existed"] = self._file_exists(path)
+            
+            # Check if directories need to be created
+            # Requirements: 2.3 - Detect when file path contains non-existent directories
+            if self._file_creation_enforcer and path:
+                needs_dirs, dirs_to_create = self._file_creation_enforcer.needs_directory_creation(path)
+                state["needs_directory_creation"] = needs_dirs
+                state["directories_to_create"] = dirs_to_create
+                
+                # Render directory creation cards for each directory
+                for dir_path in dirs_to_create:
+                    self._renderer.render_file_created(filename=f"📁  {dir_path}")
+                    self._file_creation_enforcer.record_directory_created(dir_path, success=True)
         
         return state
     
@@ -317,6 +347,11 @@ class ToolActionMapper:
             else:
                 preview = self._generate_content_preview(content)
                 self._renderer.render_file_created(filename=path, preview=preview)
+            
+            # Track file creation for confirmation display
+            # Requirements: 2.4 - Track created files for confirmation
+            if self._file_creation_enforcer and not file_existed:
+                self._file_creation_enforcer.record_file_created(path, success=success)
         
         # Handle directory listing
         elif tool_name == "list_directory":
@@ -330,6 +365,11 @@ class ToolActionMapper:
             if not path:
                 return
             self._renderer.render_file_created(filename=f"📁  {path}")
+            
+            # Track directory creation for confirmation display
+            # Requirements: 2.4 - Track created directories for confirmation
+            if self._file_creation_enforcer:
+                self._file_creation_enforcer.record_directory_created(path, success=success)
     
     def render_status_footer(
         self,

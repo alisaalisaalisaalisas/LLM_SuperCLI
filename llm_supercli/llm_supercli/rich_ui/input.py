@@ -152,11 +152,10 @@ class InputHandler:
         Returns:
             User input string
         """
-        style = self._theme.get_style("prompt")
-        styled_prompt = Text(prompt_text, style=style)
-        
         try:
             if password:
+                style = self._theme.get_style("prompt")
+                styled_prompt = Text(prompt_text, style=style)
                 result = Prompt.ask(
                     styled_prompt,
                     console=self._console,
@@ -164,7 +163,8 @@ class InputHandler:
                     default=default
                 )
             else:
-                self._console.print(styled_prompt, end="")
+                # Use markup=True to parse Rich color codes in prompt
+                self._console.print(prompt_text, end="", markup=True)
                 result = input()
                 
                 if result.strip():

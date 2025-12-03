@@ -4,12 +4,19 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from ...io_handlers.error_handler import (
+    EmptyDirectoryHandler,
+    WriteFailureHandler,
+    get_error_handler,
+)
+
 
 class ToolExecutor:
     """Executes tool calls from LLM responses."""
     
     def __init__(self, working_dir: Optional[str] = None):
         self.working_dir = working_dir or os.getcwd()
+        self._error_handler = get_error_handler()
     
     def execute(self, tool_name: str, arguments: Dict[str, Any]) -> str:
         """Execute a tool and return the result as a string."""
@@ -46,7 +53,10 @@ class ToolExecutor:
         return self.working_dir
 
     def _list_directory(self, path: str) -> str:
-        """List contents of a directory."""
+        """List contents of a directory.
+        
+        Requirements: 1.4 - Report empty directory with informative message
+        """
         dir_path = self._resolve_path(path)
         
         if not dir_path.exists():
@@ -67,7 +77,11 @@ class ToolExecutor:
             return f"Error: Permission denied accessing '{path}'"
         
         if not items:
-            return f"Directory '{path}' is empty"
+            # Use enhanced empty directory message
+            # Requirements: 1.4 - Report empty directory rather than assuming files exist
+            return self._error_handler.handle_list_directory_result(
+                f"Directory '{path}' is empty", path
+            )
         
         return f"Contents of {dir_path}:\n" + "\n".join(items)
     
@@ -102,7 +116,10 @@ class ToolExecutor:
             return f"Error: Permission denied reading '{path}'"
     
     def _write_file(self, path: str, content: str) -> str:
-        """Write content to a file."""
+        """Write content to a file.
+        
+        Requirements: 2.5 - Report write_file errors and suggest remediation steps
+        """
         if not path:
             return "Error: No file path provided"
         
@@ -112,8 +129,21 @@ class ToolExecutor:
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(content, encoding='utf-8')
             return f"Successfully wrote {len(content)} characters to '{path}'"
-        except PermissionError:
-            return f"Error: Permission denied writing to '{path}'"
+        except PermissionError as e:
+            # Requirements: 2.5 - Report error and suggest remediation
+            return self._error_handler.handle_write_file_error(
+                f"Permission denied: {str(e)}", path
+            )
+        except OSError as e:
+            # Handle disk full, path issues, etc.
+            # Requirements: 2.5 - Report error and suggest remediation
+            return self._error_handler.handle_write_file_error(str(e), path)
+        except UnicodeEncodeError as e:
+            # Handle encoding errors
+            # Requirements: 2.5 - Report error and suggest remediation
+            return self._error_handler.handle_write_file_error(
+                f"Encoding error: {str(e)}", path
+            )
     
     def _create_directory(self, path: str) -> str:
         """Create a directory."""

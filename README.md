@@ -2,9 +2,7 @@
 
 <div align="center">
 
-<img width="1177" height="467" alt="image" src="https://github.com/user-attachments/assets/5331b857-ffc6-44e5-a381-7de0efa1b150" />
-
-
+![LLM SuperCLI](llm.png)
 
 **A powerful multi-provider LLM command line interface**
 

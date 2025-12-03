@@ -22,23 +22,14 @@ COMPACT_WIDTH_THRESHOLD = 80
 MINIMAL_BANNER = "SuperCLI"
 
 # Startup instructions shown below banner - Req 10.3
-STARTUP_INSTRUCTIONS = """
-Type a message to start chatting, or use these commands:
-  /help     Show all commands
-  /model    Switch model or provider
-  /mode     Change interaction mode
-  !cmd      Execute shell command
-  @file     Include file in prompt
-"""
+STARTUP_INSTRUCTIONS = ""
 
 # Compact startup instructions for narrow terminals
-COMPACT_INSTRUCTIONS = """
-/help for commands  |  /model to switch  |  ! for shell
-"""
+COMPACT_INSTRUCTIONS = ""
 
 
 def get_gradient_color(position: float) -> str:
-    """Get a color from a Green -> Yellow -> Red gradient.
+    """Get a color from a Violet -> Dark Blue gradient.
     
     Args:
         position: Position in gradient (0.0 to 1.0)
@@ -46,18 +37,10 @@ def get_gradient_color(position: float) -> str:
     Returns:
         RGB color string
     """
-    if position < 0.5:
-        # Green to Yellow
-        ratio = position * 2
-        r = int(255 * ratio)
-        g = 255
-        b = 0
-    else:
-        # Yellow to Red
-        ratio = (position - 0.5) * 2
-        r = 255
-        g = int(255 * (1 - ratio))
-        b = 0
+    # Violet (138, 43, 226) -> Dark Blue (0, 0, 139)
+    r = int(138 * (1 - position))
+    g = int(43 * (1 - position))
+    b = int(226 - (226 - 139) * position)
     
     return f"rgb({r},{g},{b})"
 
@@ -84,11 +67,7 @@ def _render_banner_with_gradient(banner_text: str, width: int) -> Text:
     result = Text()
     
     for line in lines:
-        # Calculate centering padding
-        padding = max(0, (width - len(line)) // 2)
-        result.append(" " * padding)
-        
-        # Apply gradient to each character
+        # Apply gradient to each character (left-aligned, no padding)
         for i, char in enumerate(line):
             if char.strip():
                 rel_pos = i / max_line_width if max_line_width > 0 else 0
@@ -173,14 +152,14 @@ def print_splash(console: Console = None) -> None:
     console.print()
     console.print(banner)
     
-    # Print version centered
-    console.print(Align.center(version_text))
+    # Print version (left-aligned)
+    console.print(version_text)
     console.print()
     
-    # Print startup instructions (Req 10.3) - no border, just centered text
+    # Print startup instructions (Req 10.3) - left-aligned
     instructions = _get_instructions_for_width(width)
     instructions_text = Text(instructions.strip(), style=muted_color)
-    console.print(Align.center(instructions_text))
+    console.print(instructions_text)
     
     console.print()
 

@@ -29,7 +29,7 @@ DEFAULT_PLACEHOLDER = "> Type a message or /command..."
 # Custom style for the prompt - dark theme
 PROMPT_STYLE = Style.from_dict({
     'prompt': '#00ff00',  # bright green
-    'path': '#00ff00',    # bright green
+    'path': '#6a4c93',    # dark violet for path
     'model': '#00d7d7',   # cyan for model
     'context': '#00d7d7',
     'bottom-toolbar': 'bg:#1a1a1a #666666',

@@ -126,18 +126,29 @@ class MessageRenderer:
         self._response_printed = False
         self._reasoning_printed = False
         
-        # Build thinking indicator with cancel hint (Requirements 7.1, 7.2)
-        thinking_text = Text()
-        thinking_text.append("⠋ Thinking...", style="dim italic")
-        thinking_text.append("  ")
-        thinking_text.append("Ctrl+X to cancel", style="dim")
+        # Build thinking indicator with animated spinner and cancel hint (Requirements 7.1, 7.2)
+        from rich.progress import Progress, SpinnerColumn, TextColumn
+        from rich.table import Table
         
-        # Start live display with thinking spinner
+        spinner = Progress(
+            SpinnerColumn(style=self._theme.get_style("spinner") or "cyan"),
+            TextColumn("[progress.description]{task.description}"),
+            transient=True
+        )
+        spinner.add_task("Thinking...", total=None)
+        
+        # Create layout with spinner + cancel hint
+        layout = Table.grid(expand=True)
+        layout.add_column(ratio=1)  # Spinner column (expands)
+        layout.add_column(justify="right")  # Cancel hint column (right-aligned)
+        layout.add_row(spinner, Text("Ctrl+X to cancel", style="dim"))
+        
+        # Start live display with animated spinner
         # Use transient=True to prevent panel stacking/duplication
         self._live = Live(
-            thinking_text,
+            layout,
             console=self._console,
-            refresh_per_second=15,
+            refresh_per_second=10,
             vertical_overflow="visible",
             transient=True,
         )
@@ -294,9 +305,11 @@ class MessageRenderer:
         self._cleanup_live()
         
         # Finalize any pending displays (only if not already printed)
-        if self._phase == MessagePhase.REASONING and reasoning and not self._reasoning_printed:
+        # Check reasoning first, then response (both can be displayed)
+        if reasoning and not self._reasoning_printed:
             self._finalize_reasoning_panel()
-        elif self._phase == MessagePhase.RESPONDING and response and not self._response_printed:
+        
+        if response and not self._response_printed:
             self._finalize_response_panel()
         
         # Transition to COMPLETE

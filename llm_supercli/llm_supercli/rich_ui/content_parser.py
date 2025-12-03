@@ -37,6 +37,10 @@ DEFAULT_TOOL_NAMES = [
     'create_directory',
     'run_command',
     'get_current_directory',
+    'execute_bash',
+    'execute_command',
+    'bash',
+    'shell',
 ]
 
 

@@ -77,6 +77,30 @@ CARD_STYLES: Dict[ActionType, CardStyle] = {
         border_color="red",
         title_style="bold red"
     ),
+    ActionType.TOOL_CALL: CardStyle(
+        icon="🔧",
+        title_template="Calling {tool_name}",
+        border_color="cyan",
+        title_style="bold cyan"
+    ),
+    ActionType.TOOL_RESULT: CardStyle(
+        icon="✓",
+        title_template="Tool completed",
+        border_color="green",
+        title_style="bold green"
+    ),
+    ActionType.TOOL_WARNING: CardStyle(
+        icon="⚠",
+        title_template="Warning: Action not executed",
+        border_color="yellow",
+        title_style="bold yellow"
+    ),
+    ActionType.TOOL_PROGRESS: CardStyle(
+        icon="⏳",
+        title_template="Progress: {current}/{total}",
+        border_color="blue",
+        title_style="bold blue"
+    ),
 }
 
 

@@ -22,6 +22,7 @@ from .message_state import ToolCallRecord
 from .content_parser import parse_think_tags, filter_tool_syntax
 from .action_renderer import ActionRenderer
 from ..constants import APP_NAME, APP_VERSION
+from ..io_handlers import OutputDeduplicator, deduplicate_content, recover_corrupted_output
 
 
 class RichRenderer:
@@ -53,6 +54,10 @@ class RichRenderer:
         # Initialize ActionRenderer for action cards system
         # Requirements: 7.4, 8.3 - Integration with action cards
         self._action_renderer = ActionRenderer(self._console, self._theme_manager)
+        
+        # Initialize OutputDeduplicator for removing duplicate content from responses
+        # Requirements: 5.2, 6.2 - Deduplicate reasoning and response content
+        self._deduplicator = OutputDeduplicator()
     
     @property
     def console(self) -> Console:
@@ -140,10 +145,16 @@ class RichRenderer:
             timestamp: Optional timestamp string
             
         Requirements: 4.1, 4.2, 4.3, 4.4 - Message panels with role icons
+        Requirements: 5.2, 6.2 - Deduplicate content before rendering
         Requirements: 9.2, 9.3 - Responsive layout
         """
         from .layout_manager import get_layout_manager
         layout = get_layout_manager()
+        
+        # Apply deduplication to assistant messages before rendering
+        # Requirements: 5.2, 6.2 - Deduplicate reasoning and response content
+        if role == "assistant":
+            content = self._deduplicator.deduplicate(content)
         
         # Role-specific icons and styles
         icon_map = {
@@ -189,8 +200,16 @@ class RichRenderer:
             content: Reasoning content to display
             
         Requirements: 5.1 - Yellow-bordered panel with "💭 Reasoning" header
+        Requirements: 5.2, 6.2 - Deduplicate reasoning content
         Requirements: 9.2, 9.3 - Responsive layout
         """
+        if not content.strip():
+            return
+        
+        # Apply deduplication to reasoning content
+        # Requirements: 5.2, 6.2 - Deduplicate reasoning content
+        content = self._deduplicator.deduplicate(content)
+        
         if not content.strip():
             return
         
@@ -573,6 +592,8 @@ class RichRenderer:
         
         Requirements: 7.1, 7.2 - Maintain existing public interface
         Requirements: 1.1, 1.4, 2.3 - Return deduplicated content with tool syntax preserved
+        Requirements: 5.2, 6.2 - Deduplicate reasoning and response content
+        Requirements: 6.5 - Detect and recover from corrupted/garbled output
         
         Returns:
             Tuple of (response_content, reasoning_content)
@@ -614,7 +635,23 @@ class RichRenderer:
                 reasoning = '\n'.join(reasoning_lines).strip()
                 deduplicated_response = '\n'.join(response_lines).strip()
         
-        return deduplicated_response.strip(), reasoning.strip()
+        # Apply paragraph-level deduplication to remove duplicate sections
+        # Requirements: 5.2, 6.2 - Deduplicate reasoning and response content
+        deduplicated_response = self._deduplicator.deduplicate(deduplicated_response.strip())
+        reasoning = self._deduplicator.deduplicate(reasoning.strip())
+        
+        # Check for and recover from corrupted output
+        # Requirements: 6.5 - Detect and recover from corrupted/garbled output
+        deduplicated_response, response_warning = recover_corrupted_output(deduplicated_response)
+        reasoning, reasoning_warning = recover_corrupted_output(reasoning)
+        
+        # Display warnings if content was recovered
+        if response_warning:
+            self._console.print(f"[yellow]⚠ {response_warning}[/yellow]")
+        if reasoning_warning:
+            self._console.print(f"[yellow]⚠ {reasoning_warning}[/yellow]")
+        
+        return deduplicated_response, reasoning
     
     def was_response_printed(self) -> bool:
         """Check if the response was already printed during streaming finalization.
@@ -779,6 +816,183 @@ class RichRenderer:
     def print_tool_separator(self) -> None:
         """Print a separator between tool calls."""
         self._console.print("[dim]───[/dim]")
+
+    def print_tool_warning(
+        self,
+        message: str,
+        suggested_tool: str = "",
+        detected_action: str = ""
+    ) -> None:
+        """
+        Print a warning for skipped tool invocation.
+        
+        Displays a warning when the LLM describes an action without
+        actually invoking the appropriate tool.
+        
+        Args:
+            message: Warning message to display
+            suggested_tool: The tool that should have been invoked
+            detected_action: The action the LLM described but didn't invoke
+            
+        Requirements: 4.4 - Warn user when tool invocation is skipped
+        """
+        self._console.print()
+        self._console.print("[yellow]⚠ Warning: Action not executed[/yellow]")
+        self._console.print(f"  [yellow]{message}[/yellow]")
+        
+        if detected_action:
+            self._console.print(f"  [dim]Detected: {detected_action}[/dim]")
+        
+        if suggested_tool:
+            self._console.print(f"  [dim]Suggested tool: [cyan]{suggested_tool}[/cyan][/dim]")
+        
+        self._console.print()
+
+    def print_tool_progress(
+        self,
+        current: int,
+        total: int,
+        tool_name: str = ""
+    ) -> None:
+        """
+        Print progress indicator for multi-tool sequences.
+        
+        Displays a progress bar and current/total count.
+        
+        Args:
+            current: Current tool number (1-indexed)
+            total: Total number of tools in sequence
+            tool_name: Optional name of current tool
+            
+        Requirements: 4.3 - Show progress for multi-tool sequences
+        """
+        if total <= 1:
+            return
+        
+        progress_pct = (current / total) * 100
+        filled = int(progress_pct / 10)
+        bar = "█" * filled + "░" * (10 - filled)
+        
+        progress_text = f"[{bar}] {current}/{total}"
+        if tool_name:
+            progress_text += f" - {tool_name}"
+        
+        self._console.print(f"[blue]{progress_text}[/blue]")
+
+    def print_file_creation_summary(
+        self,
+        files: list[str],
+        directories: list[str] = None
+    ) -> None:
+        """
+        Print a summary of created files and directories.
+        
+        Displays a confirmation message showing which files were created
+        and their locations.
+        
+        Args:
+            files: List of file paths that were created
+            directories: Optional list of directory paths that were created
+            
+        Requirements: 2.4 - Confirm which files were created and their locations
+        """
+        directories = directories or []
+        
+        if not files and not directories:
+            return
+        
+        self._console.print()
+        
+        total = len(files) + len(directories)
+        self._console.print(f"[green]✓ Created {total} item(s):[/green]")
+        
+        # Show directories first
+        for dir_path in directories:
+            self._console.print(f"  [cyan]📁 {dir_path}[/cyan]")
+        
+        # Show files
+        for file_path in files:
+            self._console.print(f"  [green]📄 {file_path}[/green]")
+        
+        self._console.print()
+
+    def print_write_error_with_remediation(
+        self,
+        error_message: str,
+        file_path: str,
+        remediation_steps: list[str]
+    ) -> None:
+        """
+        Print a write file error with remediation suggestions.
+        
+        Displays the error message and a list of suggested steps
+        to resolve the issue.
+        
+        Args:
+            error_message: The error message to display
+            file_path: The file path that failed
+            remediation_steps: List of suggested remediation steps
+            
+        Requirements: 2.5 - Report write_file errors and suggest remediation
+        """
+        self._console.print()
+        self._console.print(f"[red]✗ Failed to write '{file_path}'[/red]")
+        self._console.print(f"  [red]{error_message}[/red]")
+        
+        if remediation_steps:
+            self._console.print()
+            self._console.print("[yellow]Suggested remediation steps:[/yellow]")
+            for i, step in enumerate(remediation_steps, 1):
+                self._console.print(f"  [dim]{i}.[/dim] {step}")
+        
+        self._console.print()
+
+    def print_empty_directory_message(self, path: str) -> None:
+        """
+        Print an informative message for an empty directory.
+        
+        Displays a message explaining the directory is empty and
+        suggests possible actions.
+        
+        Args:
+            path: The path to the empty directory
+            
+        Requirements: 1.4 - Report empty directory rather than assuming files exist
+        """
+        from ..io_handlers import handle_empty_directory
+        
+        message = handle_empty_directory(path)
+        self._console.print()
+        self._console.print("[yellow]📁 Empty Directory[/yellow]")
+        for line in message.split('\n'):
+            if line.strip():
+                self._console.print(f"  {line}")
+        self._console.print()
+
+    def print_corrupted_output_warning(self, warning: str, issues: list[str] = None) -> None:
+        """
+        Print a warning about corrupted output that was recovered.
+        
+        Displays a warning message and optionally lists the issues
+        that were detected and fixed.
+        
+        Args:
+            warning: The warning message
+            issues: Optional list of specific issues detected
+            
+        Requirements: 6.5 - Detect and recover from corrupted/garbled output
+        """
+        self._console.print()
+        self._console.print(f"[yellow]⚠ Output Recovery[/yellow]")
+        self._console.print(f"  [yellow]{warning}[/yellow]")
+        
+        if issues:
+            self._console.print()
+            self._console.print("  [dim]Issues detected:[/dim]")
+            for issue in issues:
+                self._console.print(f"    [dim]• {issue}[/dim]")
+        
+        self._console.print()
 
 
 _renderer: Optional[RichRenderer] = None

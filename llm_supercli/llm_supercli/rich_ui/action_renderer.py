@@ -27,6 +27,10 @@ from .action_models import (
     ThinkingAction,
     DoneAction,
     ErrorAction,
+    ToolCallAction,
+    ToolResultAction,
+    ToolWarningAction,
+    ToolProgressAction,
 )
 from .card_styles import CardStyle, get_card_style, CARD_STYLES
 from .theme import ThemeManager
@@ -127,6 +131,10 @@ class ActionRenderer:
             ActionType.DONE: self._render_done_action,
             ActionType.STATUS: self._render_status_action,
             ActionType.ERROR: self._render_error_action,
+            ActionType.TOOL_CALL: self._render_tool_call_action,
+            ActionType.TOOL_RESULT: self._render_tool_result_action,
+            ActionType.TOOL_WARNING: self._render_tool_warning_action,
+            ActionType.TOOL_PROGRESS: self._render_tool_progress_action,
         }
         
         renderer = dispatch_map.get(action.type)
@@ -761,8 +769,188 @@ class ActionRenderer:
         content = Text("\n".join(lines), style="red")
         return self._create_card_panel(ActionType.ERROR, content)
 
+    def _render_tool_call_action(self, action: Action) -> RenderableType:
+        """
+        Render a ToolCallAction showing tool invocation start.
+        
+        Displays the tool name and parameters when a tool invocation starts.
+        
+        Args:
+            action: ToolCallAction to render
+            
+        Returns:
+            Rich renderable for the action
+            
+        Requirements: 4.1 - Display tool name and parameters when invocation starts
+        """
+        if not isinstance(action, ToolCallAction):
+            action = ToolCallAction(
+                type=ActionType.TOOL_CALL,
+                tool_name=action.metadata.get("tool_name", ""),
+                parameters=action.metadata.get("parameters", {}),
+                args_preview=action.metadata.get("args_preview", "")
+            )
+        
+        content = Text()
+        
+        # Show args preview or formatted args
+        if action.args_preview:
+            content.append("  ")
+            content.append(action.args_preview, style="dim")
+        elif action.parameters:
+            # Format args as key=value pairs
+            for i, (key, value) in enumerate(action.parameters.items()):
+                if i > 0:
+                    content.append("\n")
+                content.append("  ")
+                content.append(f"{key}", style="cyan")
+                content.append("=", style="dim")
+                # Truncate long values
+                str_value = str(value)
+                if len(str_value) > 60:
+                    str_value = str_value[:57] + "..."
+                content.append(str_value, style="dim")
+        
+        return self._create_card_panel(
+            ActionType.TOOL_CALL,
+            content,
+            tool_name=action.tool_name
+        )
+
+    def _render_tool_result_action(self, action: Action) -> RenderableType:
+        """
+        Render a ToolResultAction showing tool execution result.
+        
+        Displays success/failure indicator with result preview.
+        
+        Args:
+            action: ToolResultAction to render
+            
+        Returns:
+            Rich renderable for the action
+            
+        Requirements: 4.2 - Display result/confirmation when tool completes
+        """
+        if not isinstance(action, ToolResultAction):
+            action = ToolResultAction(
+                type=ActionType.TOOL_RESULT,
+                tool_name=action.metadata.get("tool_name", ""),
+                result=action.metadata.get("result", ""),
+                success=action.metadata.get("success", True),
+                result_preview=action.metadata.get("result_preview", "")
+            )
+        
+        content = Text()
+        
+        if action.success:
+            # Show result preview if available
+            preview = action.result_preview or action.result
+            if preview and preview.strip():
+                # Truncate long previews
+                if len(preview) > 100:
+                    preview = preview[:97] + "..."
+                content.append("  ")
+                content.append(preview, style="dim")
+                content.append("\n")
+            content.append(f"  {SUCCESS_INDICATOR} ", style="green bold")
+            content.append("Success", style="green")
+        else:
+            content.append(f"  {FAILURE_INDICATOR} ", style="red bold")
+            error_msg = action.result_preview or action.result or "Failed"
+            content.append(error_msg, style="red")
+        
+        return self._create_card_panel(ActionType.TOOL_RESULT, content)
+
+    def _render_tool_warning_action(self, action: Action) -> RenderableType:
+        """
+        Render a ToolWarningAction for skipped tool invocations.
+        
+        Displays a warning when the LLM describes an action without
+        actually invoking the tool.
+        
+        Args:
+            action: ToolWarningAction to render
+            
+        Returns:
+            Rich renderable for the action
+            
+        Requirements: 4.4 - Warn user when tool invocation is skipped
+        """
+        if not isinstance(action, ToolWarningAction):
+            action = ToolWarningAction(
+                type=ActionType.TOOL_WARNING,
+                message=action.metadata.get("message", ""),
+                suggested_tool=action.metadata.get("suggested_tool", ""),
+                detected_action=action.metadata.get("detected_action", "")
+            )
+        
+        content = Text()
+        
+        # Show warning message
+        content.append("  ⚠ ", style="yellow bold")
+        content.append(action.message or "Action was described but not executed", style="yellow")
+        
+        # Show detected action if available
+        if action.detected_action:
+            content.append("\n  ")
+            content.append("Detected: ", style="dim")
+            content.append(action.detected_action, style="dim italic")
+        
+        # Show suggested tool if available
+        if action.suggested_tool:
+            content.append("\n  ")
+            content.append("Suggested tool: ", style="dim")
+            content.append(action.suggested_tool, style="cyan")
+        
+        return self._create_card_panel(ActionType.TOOL_WARNING, content)
+
+    def _render_tool_progress_action(self, action: Action) -> RenderableType:
+        """
+        Render a ToolProgressAction showing multi-tool sequence progress.
+        
+        Displays progress indicator for multi-tool sequences.
+        
+        Args:
+            action: ToolProgressAction to render
+            
+        Returns:
+            Rich renderable for the action
+            
+        Requirements: 4.3 - Show progress for multi-tool sequences
+        """
+        if not isinstance(action, ToolProgressAction):
+            action = ToolProgressAction(
+                type=ActionType.TOOL_PROGRESS,
+                current=action.metadata.get("current", 0),
+                total=action.metadata.get("total", 0),
+                tool_name=action.metadata.get("tool_name", "")
+            )
+        
+        content = Text()
+        
+        # Show progress bar
+        if action.total > 0:
+            progress_pct = (action.current / action.total) * 100
+            filled = int(progress_pct / 10)
+            bar = "█" * filled + "░" * (10 - filled)
+            content.append(f"  [{bar}] ", style="blue")
+            content.append(f"{action.current}/{action.total}", style="bold blue")
+        
+        # Show current tool name
+        if action.tool_name:
+            content.append("\n  ")
+            content.append("Current: ", style="dim")
+            content.append(action.tool_name, style="cyan")
+        
+        return self._create_card_panel(
+            ActionType.TOOL_PROGRESS,
+            content,
+            current=action.current,
+            total=action.total
+        )
+
     # -------------------------------------------------------------------------
-    # Tool execution feedback methods (Requirements 6.1, 6.2, 6.3, 6.4)
+    # Tool execution feedback methods (Requirements 4.1, 4.2, 4.3, 4.4)
     # -------------------------------------------------------------------------
 
     def render_batch_header(self, count: int) -> None:
@@ -900,3 +1088,123 @@ class ActionRenderer:
             self.render_tool_success(result, max_preview)
         else:
             self.render_tool_failure(result)
+
+    def render_tool_progress(
+        self,
+        current: int,
+        total: int,
+        tool_name: str = ""
+    ) -> None:
+        """
+        Render progress indicator for multi-tool sequences.
+        
+        Displays a progress bar and current/total count for multi-tool
+        execution sequences.
+        
+        Args:
+            current: Current tool number (1-indexed)
+            total: Total number of tools in sequence
+            tool_name: Optional name of current tool
+            
+        Requirements: 4.3 - Show progress for multi-tool sequences
+        """
+        if total <= 1:
+            return
+        
+        action = ToolProgressAction(
+            type=ActionType.TOOL_PROGRESS,
+            current=current,
+            total=total,
+            tool_name=tool_name
+        )
+        self.render(action)
+
+    def render_tool_warning(
+        self,
+        message: str,
+        suggested_tool: str = "",
+        detected_action: str = ""
+    ) -> None:
+        """
+        Render a warning for skipped tool invocation.
+        
+        Displays a warning when the LLM describes an action without
+        actually invoking the appropriate tool.
+        
+        Args:
+            message: Warning message to display
+            suggested_tool: The tool that should have been invoked
+            detected_action: The action the LLM described but didn't invoke
+            
+        Requirements: 4.4 - Warn user when tool invocation is skipped
+        """
+        action = ToolWarningAction(
+            type=ActionType.TOOL_WARNING,
+            message=message,
+            suggested_tool=suggested_tool,
+            detected_action=detected_action
+        )
+        self.render(action)
+
+    def render_tool_execution_start(
+        self,
+        tool_name: str,
+        parameters: dict = None,
+        current: int = 0,
+        total: int = 0
+    ) -> None:
+        """
+        Render tool execution start with optional progress.
+        
+        Combines tool call display with progress indicator for
+        multi-tool sequences.
+        
+        Args:
+            tool_name: Name of the tool being called
+            parameters: Dictionary of tool parameters
+            current: Current tool number (1-indexed, 0 to skip progress)
+            total: Total number of tools in sequence
+            
+        Requirements: 4.1, 4.3 - Tool name/params and progress display
+        """
+        # Show progress if in a multi-tool sequence
+        if total > 1 and current > 0:
+            self.render_tool_progress(current, total, tool_name)
+        
+        # Show tool call
+        action = ToolCallAction(
+            type=ActionType.TOOL_CALL,
+            tool_name=tool_name,
+            parameters=parameters or {}
+        )
+        self.render(action)
+
+    def render_tool_execution_complete(
+        self,
+        tool_name: str,
+        result: str,
+        success: bool = True
+    ) -> None:
+        """
+        Render tool execution completion with result.
+        
+        Displays the result/confirmation when a tool completes execution.
+        
+        Args:
+            tool_name: Name of the tool that completed
+            result: Result string from tool execution
+            success: Whether the tool call succeeded
+            
+        Requirements: 4.2 - Display result/confirmation when tool completes
+        """
+        # Truncate result for preview
+        preview = result[:100] + "..." if len(result) > 100 else result
+        
+        action = ToolResultAction(
+            type=ActionType.TOOL_RESULT,
+            tool_name=tool_name,
+            result=result,
+            success=success,
+            result_preview=preview
+        )
+        self.render(action)
