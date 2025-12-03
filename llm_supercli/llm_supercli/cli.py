@@ -627,7 +627,7 @@ class CLI:
             response_content, reasoning_content = self._renderer.stop_live_stream()
             
             # Display final reasoning box if any (only if not already printed)
-            if reasoning_content:
+            if reasoning_content and not self._renderer.was_reasoning_printed():
                 self._renderer.print_reasoning(reasoning_content)
             
             # Display response only if not already printed during streaming
@@ -703,8 +703,14 @@ class CLI:
         # Track executed tool calls to prevent duplicates
         executed_calls: set[str] = set()
         
+        # Track displayed content to prevent duplication
+        displayed_content: set[str] = set()
+        
         for iteration in range(max_iterations):
-            self._renderer.start_live_reasoning()
+            # Accumulate raw response without live display to avoid duplication
+            raw_response = ""
+            self._renderer.start_spinner("Thinking...")
+            
             try:
                 async for chunk in provider.chat_stream(
                     messages=messages,
@@ -712,9 +718,15 @@ class CLI:
                     temperature=self._config.llm.temperature,
                     max_tokens=self._config.llm.max_tokens
                 ):
-                    self._renderer.update_live_stream(chunk.content)
+                    raw_response += chunk.content
             finally:
-                response_content, reasoning_content = self._renderer.stop_live_stream()
+                self._renderer.stop_spinner()
+            
+            # Parse think tags from raw response
+            from .rich_ui.content_parser import parse_think_tags
+            parsed = parse_think_tags(raw_response)
+            response_content = parsed.response
+            reasoning_content = parsed.reasoning
             
             # Parse tool calls using the modular ToolParser
             # Check both response content AND reasoning content (model sometimes puts tools in thinking)
@@ -746,9 +758,27 @@ class CLI:
             display_content = re.sub(r'```\s*\n?\s*```', '', display_content)
             # Remove lines that are just "< " artifacts
             display_content = re.sub(r'^\s*<\s*$', '', display_content, flags=re.MULTILINE)
+            # Remove "python" artifacts from tool call parsing
+            display_content = re.sub(r'\bpython\b(?=\s*python|\s*$)', '', display_content)
+            # Remove Rich panel border characters that model might output
+            display_content = re.sub(r'[┏┓┗┛┃━]+', '', display_content)
             display_content = display_content.strip()
             
-            # Execute parsed tool calls with consistent visual feedback
+            # Deduplicate repeated content (model sometimes outputs same text multiple times)
+            # Split into sentences and remove duplicates while preserving order
+            lines = display_content.split('\n')
+            seen_lines = set()
+            unique_lines = []
+            for line in lines:
+                line_key = line.strip().lower()
+                if line_key and line_key not in seen_lines:
+                    seen_lines.add(line_key)
+                    unique_lines.append(line)
+                elif not line_key:  # Keep empty lines for formatting
+                    unique_lines.append(line)
+            display_content = '\n'.join(unique_lines)
+            
+            # Execute parsed tool calls FIRST with consistent visual feedback
             tool_results = []
             num_calls = len(unique_calls)
             
@@ -771,7 +801,7 @@ class CLI:
                 messages.append({"role": "assistant", "content": content})
                 messages.append({
                     "role": "user",
-                    "content": "Tool results:\n" + "\n".join(valid_results) + "\n\nContinue with your analysis. You may call more tools if needed to complete the task."
+                    "content": "Tool results:\n" + "\n".join(valid_results) + "\n\nBased on these results, provide your analysis now. Do NOT say you already provided an analysis - you have not shown any analysis to the user yet. Present your findings clearly."
                 })
                 continue
             
@@ -787,18 +817,31 @@ class CLI:
             
             # If response is empty but we have reasoning, use reasoning as the response
             # (Qwen sometimes puts the actual response in reasoning_content)
-            if not final_content and reasoning_content:
+            # But only if reasoning wasn't already printed during streaming
+            if not final_content and reasoning_content and not self._renderer.was_reasoning_printed():
                 final_content = reasoning_content.strip()
                 final_content = re.sub(r'</?think>?', '', final_content).strip()
                 final_content = re.sub(r'<[^>]*\([^)]*\)[^>]*>', '', final_content).strip()
                 final_content = re.sub(r'<\s*/\s*\w+\s*>', '', final_content).strip()
                 final_content = re.sub(r'^\s*<\s*$', '', final_content, flags=re.MULTILINE).strip()
             
-            # If still no content after tool calls, prompt for a summary
-            if not final_content and iteration >= 0:
+            # Check for empty or useless responses (just punctuation, very short, filenames only, etc.)
+            stripped_content = final_content.strip() if final_content else ""
+            is_useless_response = (
+                not final_content or 
+                len(stripped_content) < 20 or  # Increased threshold - real responses are longer
+                re.match(r'^[\s\.\,\!\?\-\_\*]+$', stripped_content) or
+                # Just a filename or path (no actual content)
+                re.match(r'^[\w\-\_\.\/\\]+\.(py|txt|md|json|toml|yaml|yml|js|ts|html|css)$', stripped_content, re.IGNORECASE) or
+                # Just a single word or identifier
+                re.match(r'^\w+$', stripped_content)
+            )
+            
+            # If still no useful content after tool calls, prompt for a real response
+            if is_useless_response and iteration >= 0:
                 # Limit summary prompts to avoid infinite loops
                 if iteration >= max_iterations - 1:
-                    self._renderer.print_warning("Model did not provide a response after tool calls.")
+                    self._renderer.print_warning("Model did not provide a useful response.")
                     break
                 # If we executed tools but got no response, ask for one
                 if tool_results:
@@ -808,8 +851,66 @@ class CLI:
                         "content": "Now provide a brief response based on what you found. Be concise."
                     })
                     continue
-                # No tools and no content - just break
-                break
+                # No tools and useless content - prompt for actual work
+                messages.append({"role": "assistant", "content": content})
+                messages.append({
+                    "role": "user",
+                    "content": "Please provide a substantive response. If you need to analyze something, use the available tools (list_directory, read_file, etc.)."
+                })
+                continue
+            
+            # Check if model said it would do something but didn't follow through
+            # Common patterns: "Let me...", "I'll...", "I will...", "First, I'll..."
+            incomplete_patterns = [
+                r"(?i)\blet me\b.*\b(check|look|analyze|examine|read|list|search|find)\b",
+                r"(?i)\bi'?ll\b.*\b(check|look|analyze|examine|read|list|search|find)\b",
+                r"(?i)\bi will\b.*\b(check|look|analyze|examine|read|list|search|find)\b",
+                r"(?i)\bfirst,?\s+i'?ll\b",
+                r"(?i)\blet's\b.*\b(check|look|analyze|examine|read|list|search|find)\b",
+            ]
+            
+            # Check if model claims it already answered but response is too short
+            # (hallucinating that it provided analysis when it didn't)
+            hallucination_patterns = [
+                r"(?i)\bi'?ve (already|just) (completed|provided|given|done|finished)",
+                r"(?i)\b(already|just) (completed|provided|given|done|finished).*analysis",
+                r"(?i)\bbased on my (previous|earlier) (analysis|exploration|review)",
+                r"(?i)\bas (i|I) (mentioned|said|explained|described) (earlier|before|above)",
+            ]
+            
+            is_incomplete = False
+            is_hallucinating = False
+            
+            if final_content and iteration < max_iterations - 1:
+                for pattern in incomplete_patterns:
+                    if re.search(pattern, final_content):
+                        is_incomplete = True
+                        break
+                
+                # Check for hallucination - model claims it answered but response is short
+                if len(final_content) < 500:  # Real analysis should be longer
+                    for pattern in hallucination_patterns:
+                        if re.search(pattern, final_content):
+                            is_hallucinating = True
+                            break
+            
+            # If model said it would do something but didn't call tools, prompt to continue
+            if is_incomplete and not tool_results:
+                messages.append({"role": "assistant", "content": content})
+                messages.append({
+                    "role": "user",
+                    "content": "Please proceed with the action you mentioned. Use the available tools (list_directory, read_file, etc.) to complete the task."
+                })
+                continue
+            
+            # If model is hallucinating that it already answered, force it to actually answer
+            if is_hallucinating:
+                messages.append({"role": "assistant", "content": content})
+                messages.append({
+                    "role": "user",
+                    "content": "You have NOT provided any analysis yet - the user has not seen any analysis from you. Please provide your actual detailed analysis NOW based on the files you read."
+                })
+                continue
             
             # Print final response panel only if not already printed during streaming
             if final_content and not self._renderer.was_response_printed():
@@ -1061,9 +1162,37 @@ class CLI:
                     response_content, reasoning_content = self._renderer.stop_live_stream()
                 
                 # If model put response in thinking, use reasoning as response
+                # But only if reasoning wasn't already printed during streaming
                 if not response_content.strip() and reasoning_content.strip():
-                    response_content = reasoning_content
+                    if not self._renderer.was_reasoning_printed():
+                        response_content = reasoning_content
                     reasoning_content = ""
+                
+                # Check if model said it would do something but didn't follow through
+                # Common patterns: "Let me...", "I'll...", "I will...", "First, I'll..."
+                incomplete_patterns = [
+                    r"(?i)\blet me\b.*\b(check|look|analyze|examine|read|list|search|find)\b",
+                    r"(?i)\bi'?ll\b.*\b(check|look|analyze|examine|read|list|search|find)\b",
+                    r"(?i)\bi will\b.*\b(check|look|analyze|examine|read|list|search|find)\b",
+                    r"(?i)\bfirst,?\s+i'?ll\b",
+                    r"(?i)\blet's\b.*\b(check|look|analyze|examine|read|list|search|find)\b",
+                ]
+                
+                is_incomplete = False
+                if response_content and iteration < max_iterations:
+                    for pattern in incomplete_patterns:
+                        if re.search(pattern, response_content):
+                            is_incomplete = True
+                            break
+                
+                # If model said it would do something but didn't call tools, prompt to continue
+                if is_incomplete:
+                    messages.append({"role": "assistant", "content": response_content})
+                    messages.append({
+                        "role": "user",
+                        "content": "Please proceed with the action you mentioned. Use the available tools to complete the task."
+                    })
+                    continue
                 
                 # Print final response panel only if not already printed during streaming
                 if response_content and not self._renderer.was_response_printed():

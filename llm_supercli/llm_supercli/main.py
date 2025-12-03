@@ -283,18 +283,16 @@ def main() -> int:
     from .cli import CLI
     cli = CLI()
     
+    # Wait for update check thread to complete before starting CLI
+    # Show notification at startup so user sees it immediately
+    if update_thread is not None:
+        # Give the update check time to complete (with timeout)
+        update_thread.join(timeout=2.0)
+        # Show any pending update notification at startup
+        notifier.show_pending_notification()
+    
     try:
         cli.run()
-        
-        # Wait for update check thread to complete (with timeout)
-        # Requirements: 3.3 - Show notification after main CLI output completes
-        if update_thread is not None and update_thread.is_alive():
-            # Give the update check a short time to complete if it hasn't already
-            update_thread.join(timeout=0.5)
-        
-        # Show any pending update notification
-        notifier.show_pending_notification()
-        
         return 0
     except KeyboardInterrupt:
         print("\nGoodbye!")

@@ -4,7 +4,6 @@ ASCII art and banners for llm_supercli.
 from typing import Optional
 
 from rich.console import Console
-from rich.panel import Panel
 from rich.text import Text
 
 from ..constants import APP_NAME, APP_VERSION
@@ -281,20 +280,17 @@ class ASCIIArt:
     
     def render_banner_panel(self, console: Console) -> None:
         """
-        Render the banner in a Rich panel.
+        Render the banner without bordered panel.
         
         Args:
             console: Rich console to render to
+            
+        Requirements: 1.5 - Render banner without bordered panel
         """
         banner_text = Text(self.get_banner("small"), style="bold cyan")
-        panel = Panel(
-            banner_text,
-            title=f"[bold white]{APP_NAME}[/bold white]",
-            subtitle=f"[dim]v{APP_VERSION}[/dim]",
-            border_style="cyan",
-            padding=(0, 2)
-        )
-        console.print(panel)
+        console.print(banner_text)
+        console.print(f"[bold white]{APP_NAME}[/bold white] [dim]v{APP_VERSION}[/dim]")
+        console.print()  # Add spacing
     
     def status_indicator(self, status: str) -> str:
         """

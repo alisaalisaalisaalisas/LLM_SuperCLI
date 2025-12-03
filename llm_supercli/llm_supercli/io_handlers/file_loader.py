@@ -192,7 +192,7 @@ class FileLoader:
             items = sorted(dir_path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
             lines = [f"# Directory: {path}\n"]
             for item in items[:50]:  # Limit to 50 items
-                prefix = "📁 " if item.is_dir() else "📄 "
+                prefix = "📁  " if item.is_dir() else "📄  "
                 lines.append(f"{prefix}{item.name}")
             if len(list(dir_path.iterdir())) > 50:
                 lines.append(f"... and {len(list(dir_path.iterdir())) - 50} more items")

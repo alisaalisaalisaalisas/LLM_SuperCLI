@@ -21,7 +21,6 @@ from typing import Optional, Tuple
 from rich.console import Console, RenderableType
 from rich.live import Live
 from rich.markdown import Markdown
-from rich.panel import Panel
 from rich.text import Text
 
 from llm_supercli.rich_ui.message_state import MessagePhase, ToolCallRecord
@@ -84,6 +83,7 @@ class MessageRenderer:
         self._static_content: list[RenderableType] = []
         self._in_thinking = False  # Track if inside <think> tags
         self._response_printed = False  # Track if final response was already printed
+        self._reasoning_printed = False  # Track if reasoning was already printed
 
     @property
     def phase(self) -> MessagePhase:
@@ -124,6 +124,7 @@ class MessageRenderer:
         self._static_content.clear()
         self._in_thinking = False
         self._response_printed = False
+        self._reasoning_printed = False
         
         # Build thinking indicator with cancel hint (Requirements 7.1, 7.2)
         thinking_text = Text()
@@ -293,7 +294,7 @@ class MessageRenderer:
         self._cleanup_live()
         
         # Finalize any pending displays (only if not already printed)
-        if self._phase == MessagePhase.REASONING and reasoning and not self._response_printed:
+        if self._phase == MessagePhase.REASONING and reasoning and not self._reasoning_printed:
             self._finalize_reasoning_panel()
         elif self._phase == MessagePhase.RESPONDING and response and not self._response_printed:
             self._finalize_response_panel()
@@ -308,6 +309,11 @@ class MessageRenderer:
         """Check if the response was already printed during finalization."""
         return self._response_printed
     
+    @property
+    def reasoning_already_printed(self) -> bool:
+        """Check if the reasoning was already printed during finalization."""
+        return self._reasoning_printed
+    
     def abort(self, error: Optional[str] = None) -> Tuple[str, str]:
         """Abort current message, optionally show error.
         
@@ -319,6 +325,8 @@ class MessageRenderer:
             
         Returns:
             Tuple of (partial_response, partial_reasoning)
+            
+        Requirements: 1.6 - Display error without bordered panel
         """
         # Get partial content before cleanup
         response = self._buffer.response
@@ -327,15 +335,14 @@ class MessageRenderer:
         # Clean up live display
         self._cleanup_live()
         
-        # Display error if provided
+        # Display error if provided (without border)
         if error:
-            error_panel = Panel(
-                Text(error, style=self._theme.get_style("error_message")),
-                title="[red]✗ Error[/red]",
-                border_style="red",
-                padding=(0, 1),
-            )
-            self._console.print(error_panel)
+            error_header = Text()
+            error_header.append("❌ ", style="red bold")
+            error_header.append("Error", style="red bold")
+            self._console.print(error_header)
+            self._console.print(Text(error, style=self._theme.get_style("error_message")))
+            self._console.print()  # Add spacing
         
         # Transition to ERROR state
         self._phase = MessagePhase.ERROR
@@ -354,6 +361,7 @@ class MessageRenderer:
         self._phase = MessagePhase.IDLE
         self._in_thinking = False
         self._response_printed = False
+        self._reasoning_printed = False
     
     # -------------------------------------------------------------------------
     # Private helper methods
@@ -438,6 +446,9 @@ class MessageRenderer:
         # Print reasoning without border
         display_text = self._buffer.reasoning.strip()
         if display_text:
+            # Mark that we've printed the reasoning BEFORE printing
+            self._reasoning_printed = True
+            
             content = Text()
             content.append("💭 ", style="yellow")
             content.append(display_text, style="dim italic")

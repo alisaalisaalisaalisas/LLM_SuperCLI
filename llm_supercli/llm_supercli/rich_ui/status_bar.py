@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from typing import Optional, TYPE_CHECKING
 
 from rich.console import Console, RenderableType
-from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
@@ -278,25 +277,23 @@ class StatusBar:
         else:
             return "green"
     
-    def render_panel(self, width: Optional[int] = None) -> Panel:
+    def render_panel(self, width: Optional[int] = None) -> RenderableType:
         """
-        Render the status bar as a bordered panel.
+        Render the status bar (borderless).
+        
+        Note: This method is deprecated. Use render() instead.
+        Kept for backward compatibility but now returns borderless content.
         
         Args:
             width: Optional width override
             
         Returns:
-            Panel containing status bar
+            Borderless status bar content
+            
+        Requirements: 1.6 - Remove bordered panels
         """
-        effective_width = width or self._width or self._console.width
-        content = self._build_content(effective_width - 4)  # Account for panel borders
-        
-        return Panel(
-            content,
-            border_style="dim",
-            padding=(0, 1),
-            height=3
-        )
+        # Return borderless content for backward compatibility
+        return self.render(width)
     
     def print(self, width: Optional[int] = None) -> None:
         """

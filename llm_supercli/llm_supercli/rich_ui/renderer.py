@@ -9,7 +9,6 @@ from typing import Any, Generator, Optional
 from rich.console import Console, Group
 from rich.live import Live
 from rich.markdown import Markdown
-from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 from rich.syntax import Syntax
 from rich.table import Table
@@ -100,20 +99,19 @@ class RichRenderer:
     
     def print_banner(self, size: str = "small") -> None:
         """
-        Print the application banner.
+        Print the application banner without bordered panel.
         
         Args:
             size: Banner size ('large', 'small', or 'mini')
+            
+        Requirements: 1.5 - Render banner without bordered panel
         """
         banner = self._ascii_art.get_banner(size)
-        self._console.print(
-            Panel(
-                Text(banner, style=self._theme_manager.get_style("prompt")),
-                title=f"[bold]{APP_NAME}[/bold]",
-                subtitle=f"[dim]v{APP_VERSION}[/dim]",
-                border_style=self._theme_manager.get_color("primary")
-            )
-        )
+        # Print banner text with styling directly (no Panel wrapper)
+        self._console.print(Text(banner, style=self._theme_manager.get_style("prompt")))
+        # Print app name and version below banner
+        self._console.print(f"[bold]{APP_NAME}[/bold] [dim]v{APP_VERSION}[/dim]")
+        self._console.print()  # Add spacing
     
     def print_welcome(self) -> None:
         """Print welcome message with cyberpunk splash screen."""
@@ -230,14 +228,20 @@ class RichRenderer:
         title: Optional[str] = None
     ) -> None:
         """
-        Print syntax-highlighted code.
+        Print syntax-highlighted code without bordered panel.
         
         Args:
             code: Code string
             language: Programming language
             line_numbers: Whether to show line numbers
             title: Optional title for the code block
+            
+        Requirements: 1.6 - Render code without bordered panel
         """
+        # Print title if provided (without border)
+        if title:
+            self._console.print(f"[{self._theme_manager.get_style('code_border')}]─── {title} ───[/]")
+        
         syntax = Syntax(
             code,
             language,
@@ -246,83 +250,75 @@ class RichRenderer:
             word_wrap=True
         )
         
-        if title:
-            panel = Panel(
-                syntax,
-                title=title,
-                border_style=self._theme_manager.get_style("code_border")
-            )
-            self._console.print(panel)
-        else:
-            self._console.print(syntax)
+        self._console.print(syntax)
     
     def print_error(self, message: str, title: str = "Error") -> None:
         """
-        Print an error message.
+        Print an error message without bordered panel.
         
         Args:
             message: Error message
             title: Error title
+            
+        Requirements: 1.1 - Render error with icon and styled text without bordered panel
         """
         icon = self._ascii_art.get_icon("error")
-        self._console.print(
-            Panel(
-                Text(message, style=self._theme_manager.get_style("error_message")),
-                title=f"{icon} {title}",
-                border_style="red"
-            )
-        )
+        # Print header with icon and title
+        self._console.print(f"[bold red]{icon} {title}[/bold red]")
+        # Print message with error styling
+        self._console.print(Text(message, style=self._theme_manager.get_style("error_message")))
+        self._console.print()  # Add spacing
     
     def print_warning(self, message: str, title: str = "Warning") -> None:
         """
-        Print a warning message.
+        Print a warning message without bordered panel.
         
         Args:
             message: Warning message
             title: Warning title
+            
+        Requirements: 1.2 - Render warning with icon and styled text without bordered panel
         """
         icon = self._ascii_art.get_icon("warning")
-        self._console.print(
-            Panel(
-                Text(message, style=self._theme_manager.get_style("warning_message")),
-                title=f"{icon} {title}",
-                border_style="yellow"
-            )
-        )
+        # Print header with icon and title
+        self._console.print(f"[bold yellow]{icon} {title}[/bold yellow]")
+        # Print message with warning styling
+        self._console.print(Text(message, style=self._theme_manager.get_style("warning_message")))
+        self._console.print()  # Add spacing
     
     def print_success(self, message: str, title: str = "Success") -> None:
         """
-        Print a success message.
+        Print a success message without bordered panel.
         
         Args:
             message: Success message
             title: Success title
+            
+        Requirements: 1.4 - Render success with icon and styled text without bordered panel
         """
-        icon = self._ascii_art.get_icon("success")
-        self._console.print(
-            Panel(
-                Text(message, style="bold green"),
-                title=f"{icon} {title}",
-                border_style="green"
-            )
-        )
+        icon = self._ascii_art.get_icon("check")  # Use ✓ icon per requirements
+        # Print header with icon and title
+        self._console.print(f"[bold green]{icon} {title}[/bold green]")
+        # Print message with success styling
+        self._console.print(Text(message, style="bold green"))
+        self._console.print()  # Add spacing
     
     def print_info(self, message: str, title: str = "Info") -> None:
         """
-        Print an info message.
+        Print an info message without bordered panel.
         
         Args:
             message: Info message
             title: Info title
+            
+        Requirements: 1.3 - Render info with icon and styled text without bordered panel
         """
         icon = self._ascii_art.get_icon("info")
-        self._console.print(
-            Panel(
-                Text(message, style=self._theme_manager.get_style("info_message")),
-                title=f"{icon} {title}",
-                border_style="blue"
-            )
-        )
+        # Print header with icon and title
+        self._console.print(f"[bold blue]{icon} {title}[/bold blue]")
+        # Print message with info styling
+        self._console.print(Text(message, style=self._theme_manager.get_style("info_message")))
+        self._console.print()  # Add spacing
     
     def print_table(
         self,
@@ -627,6 +623,14 @@ class RichRenderer:
             True if the response panel was already printed, False otherwise
         """
         return self._message_renderer.response_already_printed
+    
+    def was_reasoning_printed(self) -> bool:
+        """Check if the reasoning was already printed during streaming finalization.
+        
+        Returns:
+            True if the reasoning panel was already printed, False otherwise
+        """
+        return self._message_renderer.reasoning_already_printed
     
     def stream_response(self, chunks: Generator[str, None, None]) -> str:
         """

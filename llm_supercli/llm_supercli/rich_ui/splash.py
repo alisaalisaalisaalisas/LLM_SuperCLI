@@ -7,7 +7,6 @@ Requirements:
 """
 from rich.console import Console
 from rich.text import Text
-from rich.panel import Panel
 from rich.align import Align
 import shutil
 

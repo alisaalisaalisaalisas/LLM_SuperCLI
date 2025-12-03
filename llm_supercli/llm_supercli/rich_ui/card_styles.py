@@ -30,7 +30,7 @@ class CardStyle:
 # Mapping of ActionType to CardStyle for consistent visual rendering
 CARD_STYLES: Dict[ActionType, CardStyle] = {
     ActionType.READ_FILES: CardStyle(
-        icon="🗂️",
+        icon="📂",
         title_template="Read file(s)",
         border_color="cyan",
         title_style="bold cyan"
