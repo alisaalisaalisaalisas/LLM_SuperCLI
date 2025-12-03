@@ -8,9 +8,9 @@
     "scripts/",
     "README.md",
     "pyproject.toml",
-    "requirements.txt",
-    "llm.png"
+    "requirements.txt"
   ],
+  
   "bin": {
     "llm": "./bin/llm",
     "llm-supercli": "./bin/llm-supercli"

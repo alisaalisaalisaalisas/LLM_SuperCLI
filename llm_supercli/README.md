@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![LLM SuperCLI](llm.png)
+![LLM SuperCLI](https://raw.githubusercontent.com/alisaalisaalisaalisas/LLM_SuperCLI/main/llm_supercli/llm.png)
 
 **A powerful multi-provider LLM command line interface**
 
