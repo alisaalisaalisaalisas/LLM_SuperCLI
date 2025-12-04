@@ -801,8 +801,17 @@ class CLI:
                     max_tokens=self._config.llm.max_tokens
                 ):
                     raw_response += chunk.content
+            except Exception as e:
+                self._renderer.stop_spinner()
+                self._renderer.print_error(f"LLM Error: {e}")
+                return
             finally:
                 self._renderer.stop_spinner()
+            
+            # Check for empty response
+            if not raw_response.strip():
+                self._renderer.print_warning("Model returned empty response. Try again.")
+                return
             
             # Parse think tags from raw response
             from .rich_ui.content_parser import parse_think_tags
@@ -852,7 +861,20 @@ class CLI:
             display_content = display_content.strip()
             
             # Deduplicate repeated content (model sometimes outputs same text multiple times)
-            # Split into sentences and remove duplicates while preserving order
+            # First, check for large repeated blocks (paragraphs)
+            paragraphs = re.split(r'\n\s*\n', display_content)
+            seen_paragraphs = set()
+            unique_paragraphs = []
+            for para in paragraphs:
+                para_key = para.strip().lower()[:200]  # Use first 200 chars as key
+                if para_key and para_key not in seen_paragraphs:
+                    seen_paragraphs.add(para_key)
+                    unique_paragraphs.append(para)
+                elif not para_key:
+                    unique_paragraphs.append(para)
+            display_content = '\n\n'.join(unique_paragraphs)
+            
+            # Then deduplicate individual lines
             lines = display_content.split('\n')
             seen_lines = set()
             unique_lines = []
