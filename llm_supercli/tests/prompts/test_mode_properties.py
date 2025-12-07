@@ -4,6 +4,7 @@ Property-based tests for mode management.
 Tests correctness properties defined in the design document using hypothesis.
 """
 
+import allure
 import pytest
 from hypothesis import given, settings, strategies as st, assume
 
@@ -117,6 +118,9 @@ def invalid_mode_config_wrong_types(draw):
 
 
 # **Feature: prompt-system-refactor, Property 4: Mode schema validation**
+@allure.feature("Mode Management")
+@allure.story("Mode schema validation - valid configs accepted")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(config=valid_mode_config_dict())
 def test_valid_mode_configs_accepted(config: dict):
@@ -136,6 +140,9 @@ def test_valid_mode_configs_accepted(config: dict):
 
 
 # **Feature: prompt-system-refactor, Property 4: Mode schema validation**
+@allure.feature("Mode Management")
+@allure.story("Mode schema validation - missing required fields rejected")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(config=invalid_mode_config_missing_required())
 def test_missing_required_fields_rejected(config: dict):
@@ -160,6 +167,9 @@ def test_missing_required_fields_rejected(config: dict):
 
 
 # **Feature: prompt-system-refactor, Property 4: Mode schema validation**
+@allure.feature("Mode Management")
+@allure.story("Mode schema validation - wrong types rejected")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(config=invalid_mode_config_wrong_types())
 def test_wrong_types_rejected(config: dict):
@@ -178,6 +188,9 @@ def test_wrong_types_rejected(config: dict):
 
 
 # **Feature: prompt-system-refactor, Property 4: Mode schema validation**
+@allure.feature("Mode Management")
+@allure.story("Mode schema validation - invalid tool groups rejected")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(
     valid_config=valid_mode_config_dict(),
@@ -210,6 +223,9 @@ def test_invalid_tool_groups_rejected(valid_config: dict, invalid_tool_group: st
 
 
 # **Feature: prompt-system-refactor, Property 4: Mode schema validation**
+@allure.feature("Mode Management")
+@allure.story("Mode schema validation - invalid slug pattern rejected")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(slug=invalid_slug_strategy())
 def test_invalid_slug_pattern_rejected(slug: str):

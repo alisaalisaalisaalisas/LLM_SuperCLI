@@ -6,6 +6,7 @@ Tests correctness properties defined in the design document using hypothesis.
 **Feature: qwen-tool-context-fix**
 """
 
+import allure
 import pytest
 from hypothesis import given, settings, strategies as st, assume, HealthCheck
 
@@ -131,6 +132,9 @@ def non_empty_content_strategy(draw):
 
 # **Feature: qwen-tool-context-fix, Property 3: Parser priority ordering**
 # **Validates: Requirements 5.3**
+@allure.feature("Tool Parser")
+@allure.story("Parser priority ordering")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(
     priorities=priority_list_strategy(min_size=2, max_size=5),
@@ -171,6 +175,9 @@ def test_parser_priority_ordering(priorities: list[int], content: str):
 
 # **Feature: qwen-tool-context-fix, Property 3: Parser priority ordering**
 # **Validates: Requirements 5.3**
+@allure.feature("Tool Parser")
+@allure.story("Parser priority ordering - registration order")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(
     priorities=priority_list_strategy(min_size=2, max_size=5),
@@ -203,6 +210,9 @@ def test_parsers_sorted_by_priority(priorities: list[int]):
 
 # **Feature: qwen-tool-context-fix, Property 4: Graceful parsing failure**
 # **Validates: Requirements 1.5, 5.4**
+@allure.feature("Tool Parser")
+@allure.story("Graceful parsing failure - empty result")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(
     content=st.text(max_size=500),
@@ -232,6 +242,9 @@ def test_graceful_parsing_failure_empty_result(content: str):
 
 # **Feature: qwen-tool-context-fix, Property 4: Graceful parsing failure**
 # **Validates: Requirements 1.5, 5.4**
+@allure.feature("Tool Parser")
+@allure.story("Graceful parsing failure - exception handling")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(
     content=st.text(max_size=500),
@@ -262,6 +275,9 @@ def test_graceful_parsing_failure_with_exceptions(content: str):
 
 # **Feature: qwen-tool-context-fix, Property 4: Graceful parsing failure**
 # **Validates: Requirements 1.5, 5.4**
+@allure.feature("Tool Parser")
+@allure.story("Graceful parsing failure - fallback behavior")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(
     content=non_empty_content_strategy(),
@@ -295,6 +311,9 @@ def test_graceful_parsing_failure_fallback_to_working_parser(content: str):
 
 # **Feature: qwen-tool-context-fix, Property 4: Graceful parsing failure**
 # **Validates: Requirements 1.5, 5.4**
+@allure.feature("Tool Parser")
+@allure.story("Graceful parsing failure - empty content")
+@allure.severity(allure.severity_level.CRITICAL)
 def test_graceful_parsing_failure_empty_content():
     """
     Property 4: Graceful parsing failure (empty content)
@@ -321,6 +340,9 @@ def test_graceful_parsing_failure_empty_content():
 
 # **Feature: qwen-tool-context-fix, Property 4: Graceful parsing failure**
 # **Validates: Requirements 1.5, 5.4**
+@allure.feature("Tool Parser")
+@allure.story("Graceful parsing failure - no parsers registered")
+@allure.severity(allure.severity_level.CRITICAL)
 def test_graceful_parsing_failure_no_parsers():
     """
     Property 4: Graceful parsing failure (no parsers registered)
@@ -465,6 +487,9 @@ def python_style_kwarg_call_strategy(draw):
 
 # **Feature: qwen-tool-context-fix, Property 1: Python-style parsing correctness**
 # **Validates: Requirements 1.2**
+@allure.feature("Tool Parser")
+@allure.story("Python-style parsing correctness - single argument")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(call_data=python_style_single_arg_call_strategy())
 def test_python_style_parsing_single_arg(call_data: dict):
@@ -501,6 +526,9 @@ def test_python_style_parsing_single_arg(call_data: dict):
 
 # **Feature: qwen-tool-context-fix, Property 1: Python-style parsing correctness**
 # **Validates: Requirements 1.2**
+@allure.feature("Tool Parser")
+@allure.story("Python-style parsing correctness - multiple arguments")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(call_data=python_style_multi_arg_call_strategy())
 def test_python_style_parsing_multi_arg(call_data: dict):
@@ -534,6 +562,9 @@ def test_python_style_parsing_multi_arg(call_data: dict):
 
 # **Feature: qwen-tool-context-fix, Property 1: Python-style parsing correctness**
 # **Validates: Requirements 1.2**
+@allure.feature("Tool Parser")
+@allure.story("Python-style parsing correctness - keyword arguments")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
 @given(call_data=python_style_kwarg_call_strategy())
 def test_python_style_parsing_kwargs(call_data: dict):
@@ -711,6 +742,9 @@ def xml_style_with_cdata_strategy(draw):
 
 # **Feature: qwen-tool-context-fix, Property 2: XML-style parsing correctness**
 # **Validates: Requirements 1.3**
+@allure.feature("Tool Parser")
+@allure.story("XML-style parsing correctness - single parameter")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(call_data=xml_style_single_param_call_strategy())
 def test_xml_style_parsing_single_param(call_data: dict):
@@ -747,7 +781,9 @@ def test_xml_style_parsing_single_param(call_data: dict):
 
 # **Feature: qwen-tool-context-fix, Property 2: XML-style parsing correctness**
 # **Validates: Requirements 1.3**
-from hypothesis import HealthCheck
+@allure.feature("Tool Parser")
+@allure.story("XML-style parsing correctness - multiple parameters")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100, suppress_health_check=[HealthCheck.large_base_example, HealthCheck.too_slow])
 @given(call_data=xml_style_multi_param_call_strategy())
 def test_xml_style_parsing_multi_param(call_data: dict):
@@ -781,6 +817,9 @@ def test_xml_style_parsing_multi_param(call_data: dict):
 
 # **Feature: qwen-tool-context-fix, Property 2: XML-style parsing correctness**
 # **Validates: Requirements 1.3**
+@allure.feature("Tool Parser")
+@allure.story("XML-style parsing correctness - standalone invoke")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(call_data=xml_style_standalone_invoke_strategy())
 def test_xml_style_parsing_standalone_invoke(call_data: dict):
@@ -814,6 +853,9 @@ def test_xml_style_parsing_standalone_invoke(call_data: dict):
 
 # **Feature: qwen-tool-context-fix, Property 2: XML-style parsing correctness**
 # **Validates: Requirements 1.3**
+@allure.feature("Tool Parser")
+@allure.story("XML-style parsing correctness - CDATA content")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(call_data=xml_style_with_cdata_strategy())
 def test_xml_style_parsing_with_cdata(call_data: dict):

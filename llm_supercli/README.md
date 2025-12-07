@@ -245,6 +245,74 @@ Access interactive settings menu:
 
 ---
 
+## Testing with Allure Reports
+
+The test suite supports [Allure](https://allurereport.org/) for generating interactive HTML test reports with detailed categorization and analytics.
+
+### Installing Allure CLI
+
+**Windows (Scoop):**
+```bash
+scoop install allure
+```
+
+**Windows (Chocolatey):**
+```bash
+choco install allure
+```
+
+**macOS (Homebrew):**
+```bash
+brew install allure
+```
+
+**Linux:**
+```bash
+# Download from https://github.com/allure-framework/allure2/releases
+# Extract and add bin/ to PATH
+```
+
+### Running Tests with Allure
+
+**Using the PowerShell script (recommended):**
+```powershell
+# Run all tests and open report
+./scripts/run_tests_allure.ps1
+
+# Run tests without opening browser
+./scripts/run_tests_allure.ps1 -SkipOpen
+
+# Clean previous results first
+./scripts/run_tests_allure.ps1 -CleanResults
+
+# Run specific test file
+./scripts/run_tests_allure.ps1 -TestPath "tests/prompts/test_parser_properties.py"
+```
+
+**Manual commands:**
+```bash
+# Run pytest with Allure output
+pytest --alluredir=allure-results
+
+# Generate HTML report
+allure generate allure-results -o allure-report --clean
+
+# Open report in browser
+allure open allure-report
+```
+
+### Viewing Reports
+
+After running tests, the HTML report will be available at `allure-report/index.html`. The report includes:
+
+- **Test categorization** by feature and story
+- **Severity levels** for prioritizing test failures
+- **Execution timeline** and duration metrics
+- **Test history** across multiple runs
+- **Detailed failure information** with stack traces
+
+---
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.

@@ -4,6 +4,7 @@ Property-based tests for rules loading.
 Tests correctness properties defined in the design document using hypothesis.
 """
 
+import allure
 import pytest
 from hypothesis import given, settings, strategies as st, assume
 from pathlib import Path
@@ -68,6 +69,9 @@ def global_and_local_rules_strategy(draw):
 
 
 # **Feature: prompt-system-refactor, Property 5: Rules precedence and ordering**
+@allure.feature("Rules Loading")
+@allure.story("Rules precedence - global before local")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(data=global_and_local_rules_strategy())
 def test_rules_precedence_global_before_local(data):
@@ -122,6 +126,9 @@ def test_rules_precedence_global_before_local(data):
 
 
 # **Feature: prompt-system-refactor, Property 5: Rules precedence and ordering**
+@allure.feature("Rules Loading")
+@allure.story("Rules alphabetical ordering within category")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(rules=rule_files_strategy("global", min_size=2, max_size=5))
 def test_rules_alphabetical_ordering_within_category(rules: list[RuleFile]):
@@ -156,6 +163,9 @@ def test_rules_alphabetical_ordering_within_category(rules: list[RuleFile]):
 
 
 # **Feature: prompt-system-refactor, Property 5: Rules precedence and ordering**
+@allure.feature("Rules Loading")
+@allure.story("Rules merge contains all content")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(
     global_rules=rule_files_strategy("global", min_size=1, max_size=3),
@@ -185,6 +195,9 @@ def test_rules_merge_contains_all_content(global_rules: list[RuleFile], local_ru
 
 
 # **Feature: prompt-system-refactor, Property 5: Rules precedence and ordering**
+@allure.feature("Rules Loading")
+@allure.story("Rules merge includes source headers")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(
     global_rules=rule_files_strategy("global", min_size=1, max_size=3),
@@ -213,9 +226,12 @@ def test_rules_merge_includes_source_headers(global_rules: list[RuleFile], local
 
 
 # Integration test with actual file system
+@allure.feature("Rules Loading")
 class TestRulesLoaderIntegration:
     """Integration tests for RulesLoader with actual file system."""
     
+    @allure.story("Load from empty directory")
+    @allure.severity(allure.severity_level.NORMAL)
     def test_load_from_empty_directory(self):
         """Test loading from a directory with no rules."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -224,6 +240,8 @@ class TestRulesLoaderIntegration:
             rules = loader.load(cwd)
             assert rules == []
     
+    @allure.story("Load local rules")
+    @allure.severity(allure.severity_level.NORMAL)
     def test_load_local_rules(self):
         """Test loading local rules from .supercli/rules/."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -246,6 +264,8 @@ class TestRulesLoaderIntegration:
             assert local_rules[0].path.name == "a_rule.txt"
             assert local_rules[1].path.name == "b_rule.txt"
     
+    @allure.story("Load legacy superclirules")
+    @allure.severity(allure.severity_level.NORMAL)
     def test_load_legacy_superclirules(self):
         """Test loading legacy .superclirules file."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -261,6 +281,8 @@ class TestRulesLoaderIntegration:
             assert rules[0].content == "Legacy rule content"
             assert rules[0].source == "local"
     
+    @allure.story("Merge empty rules")
+    @allure.severity(allure.severity_level.NORMAL)
     def test_merge_empty_rules(self):
         """Test merging empty rules list."""
         loader = RulesLoader()

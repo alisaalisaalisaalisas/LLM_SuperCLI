@@ -4,6 +4,7 @@ Property-based tests for prompt configuration.
 Tests correctness properties defined in the design document using hypothesis.
 """
 
+import allure
 import pytest
 from hypothesis import given, settings, strategies as st, assume
 
@@ -80,6 +81,9 @@ def prompt_config_strategy(draw):
 
 
 # **Feature: prompt-system-refactor, Property 8: Configuration round-trip consistency**
+@allure.feature("Prompt Configuration")
+@allure.story("Configuration round-trip consistency")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(config=prompt_config_strategy())
 def test_config_round_trip_consistency(config: PromptConfig):
@@ -125,6 +129,9 @@ def test_config_round_trip_consistency(config: PromptConfig):
 
 # Additional tests for validation and error handling
 
+@allure.feature("Prompt Configuration")
+@allure.story("Import malformed JSON error reporting")
+@allure.severity(allure.severity_level.NORMAL)
 def test_import_malformed_json_reports_line_column():
     """Test that malformed JSON reports line and column information."""
     malformed_json = '{\n  "version": "1.0",\n  "mode": invalid\n}'
@@ -137,6 +144,9 @@ def test_import_malformed_json_reports_line_column():
     assert error.column is not None, "Error should include column number"
 
 
+@allure.feature("Prompt Configuration")
+@allure.story("Import validation - missing version")
+@allure.severity(allure.severity_level.NORMAL)
 def test_import_missing_version_fails_validation():
     """Test that missing version field fails validation."""
     json_str = '{"mode": "code"}'
@@ -147,6 +157,9 @@ def test_import_missing_version_fails_validation():
     assert "version" in str(exc_info.value).lower()
 
 
+@allure.feature("Prompt Configuration")
+@allure.story("Export includes version")
+@allure.severity(allure.severity_level.NORMAL)
 def test_export_includes_version():
     """Test that exported config includes version."""
     config = PromptConfig()
@@ -155,6 +168,9 @@ def test_export_includes_version():
     assert f'"version": "{CONFIG_VERSION}"' in json_str
 
 
+@allure.feature("Prompt Configuration")
+@allure.story("Validation accepts valid config")
+@allure.severity(allure.severity_level.NORMAL)
 def test_validate_config_accepts_valid_config():
     """Test that validation accepts a valid configuration."""
     valid_config = {
@@ -171,6 +187,9 @@ def test_validate_config_accepts_valid_config():
     assert len(errors) == 0
 
 
+@allure.feature("Prompt Configuration")
+@allure.story("Validation rejects invalid types")
+@allure.severity(allure.severity_level.NORMAL)
 def test_validate_config_rejects_invalid_types():
     """Test that validation rejects invalid field types."""
     invalid_config = {
@@ -184,6 +203,9 @@ def test_validate_config_rejects_invalid_types():
     assert len(errors) > 0
 
 
+@allure.feature("Prompt Configuration")
+@allure.story("Validation rejects invalid variables")
+@allure.severity(allure.severity_level.NORMAL)
 def test_validate_config_rejects_invalid_variables():
     """Test that validation rejects non-string variable values."""
     invalid_config = {

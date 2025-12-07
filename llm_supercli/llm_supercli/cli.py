@@ -22,6 +22,10 @@ from .history import get_session_store
 from .llm import get_provider_registry
 from .mcp import get_mcp_manager
 from .io_handlers import BashRunner, FileLoader, get_project_analysis_enforcer, get_file_creation_enforcer
+from .completion_detector import CompletionDetector
+from .response_validator import ResponseValidator
+from .iteration_controller import IterationController
+from .context_calculator import ContextCalculator
 from .prompts import PromptBuilder, PromptConfig, SectionManager, ContextBuilder
 from .prompts.sections import (
     RoleSection,
@@ -44,6 +48,7 @@ from .prompts.tools import (
     ParsedToolCall,
 )
 from .rich_ui.skipped_tool_detector import detect_skipped_tools
+from .rich_ui.streaming_progress import StreamingProgressIndicator, StreamingProgressConfig
 
 
 class CLI:
@@ -102,6 +107,10 @@ class CLI:
         self._tools = ToolExecutor()
         self._running = False
         self._current_mode: str = "code"  # Default mode
+        
+        # Context calculator for consistent token estimation
+        # Requirements: 2.1, 2.2, 2.3, 2.4 - Context percentage calculation
+        self._context_calculator = ContextCalculator()
         
         # Initialize the new prompt system
         self._prompt_builder = self._create_prompt_builder()
@@ -328,15 +337,13 @@ class CLI:
         free_providers = ["qwen", "gemini", "ollama"]
         is_free = provider in free_providers
         
-        # Calculate context percentage (estimate based on session messages)
+        # Calculate context percentage using ContextCalculator
+        # Requirements: 2.1, 2.2, 2.3, 2.4 - Consistent context percentage calculation
         context_percent = 0
         if session:
             messages = session.get_context() if hasattr(session, 'get_context') else []
-            # Rough estimate: assume 4096 token context, 4 chars per token
-            total_chars = sum(len(str(m.get('content', ''))) for m in messages)
-            estimated_tokens = total_chars // 4
             max_tokens = self._config.llm.max_tokens or 4096
-            context_percent = min(100, int((estimated_tokens / max_tokens) * 100))
+            context_percent = self._context_calculator.calculate_percentage(messages, max_tokens)
         
         # Update status bar
         self._status_bar.update(
@@ -688,9 +695,21 @@ class CLI:
         """Stream response from LLM with live reasoning display."""
         self._renderer.start_spinner("Thinking...")
         
+        # Initialize streaming progress indicator for extended silence detection
+        # Requirements: 5.1, 5.4 - Show "still thinking" indicator for extended silence
+        progress_config = StreamingProgressConfig(
+            thinking_timeout_seconds=5.0,
+            show_cancel_hint=True
+        )
+        progress_indicator = StreamingProgressIndicator(
+            self._renderer.console,
+            config=progress_config
+        )
+        
         try:
             first_chunk = True
             self._renderer.start_live_reasoning()
+            progress_indicator.start()
             
             async for chunk in provider.chat_stream(
                 messages=context,
@@ -704,8 +723,12 @@ class CLI:
                 
                 # Update live display with chunk
                 self._renderer.update_live_stream(chunk.content)
+                # Record content arrival to reset timeout timer
+                # Requirements: 5.4 - Track content arrival for timeout detection
+                progress_indicator.on_content_received()
             
             # Stop live stream and get final content
+            progress_indicator.stop()
             response_content, reasoning_content = self._renderer.stop_live_stream()
             
             # Display final reasoning box if any (only if not already printed)
@@ -725,6 +748,7 @@ class CLI:
                 
         finally:
             self._renderer.stop_spinner()
+            progress_indicator.stop()
     
     async def _get_response(self, provider, context: list, session) -> None:
         """Get complete response from LLM."""
@@ -771,11 +795,30 @@ class CLI:
         formats (Python-style, XML-style). Provides consistent visual feedback for
         tool execution regardless of the format used.
         
-        Requirements: 1.1, 1.4, 4.1, 4.2, 4.3, 4.4
+        Uses CompletionDetector, ResponseValidator, and IterationController for
+        robust completion detection and loop management.
+        
+        Uses ChunkDeduplicator for streaming chunk deduplication to prevent
+        consecutive identical content blocks from being displayed.
+        
+        Requirements: 1.1, 1.2, 1.3, 1.4, 3.1, 3.2, 3.3, 4.1, 4.2, 4.3, 4.4, 5.2
         """
         import re
+        from .io_handlers import ChunkDeduplicator
+        
         messages = context.copy()
-        max_iterations = 15  # Increased to allow complex multi-step tasks
+        
+        # Initialize new components for completion detection and loop management
+        # Requirements: 1.1, 1.2, 1.3 - Completion detection
+        completion_detector = CompletionDetector()
+        # Requirements: 3.1, 3.2, 3.3 - Response validation and retry
+        response_validator = ResponseValidator()
+        # Requirements: 1.4 - Iteration control with max iterations warning
+        iteration_controller = IterationController(max_iterations=15)
+        
+        # Initialize chunk deduplicator for streaming content deduplication
+        # Requirements: 5.2 - Display content incrementally without duplication
+        chunk_deduplicator = ChunkDeduplicator()
         
         # Initialize the tool parser with registered format parsers
         tool_parser = ToolParser()
@@ -785,13 +828,35 @@ class CLI:
         # Track executed tool calls to prevent duplicates
         executed_calls: set[str] = set()
         
-        # Track displayed content to prevent duplication
-        displayed_content: set[str] = set()
+        # Track retry count for empty responses
+        retry_count = 0
         
-        for iteration in range(max_iterations):
+        while True:
+            # Track iteration start
+            # Requirements: 1.4 - Track iterations for max limit
+            iteration_controller.on_iteration_start()
+            
+            # Check if we've hit max iterations
+            if iteration_controller.is_at_max_iterations():
+                warning_msg = iteration_controller.on_max_iterations_reached()
+                self._renderer.print_warning(warning_msg)
+                break
+            
             # Accumulate raw response without live display to avoid duplication
             raw_response = ""
             self._renderer.start_spinner("Thinking...")
+            
+            # Initialize streaming progress indicator for extended silence detection
+            # Requirements: 5.1, 5.4 - Show "still thinking" indicator for extended silence
+            progress_config = StreamingProgressConfig(
+                thinking_timeout_seconds=5.0,
+                show_cancel_hint=True
+            )
+            progress_indicator = StreamingProgressIndicator(
+                self._renderer.console,
+                config=progress_config
+            )
+            progress_indicator.start()
             
             try:
                 async for chunk in provider.chat_stream(
@@ -801,16 +866,30 @@ class CLI:
                     max_tokens=self._config.llm.max_tokens
                 ):
                     raw_response += chunk.content
+                    # Record content arrival to reset timeout timer
+                    # Requirements: 5.4 - Track content arrival for timeout detection
+                    progress_indicator.on_content_received()
             except Exception as e:
                 self._renderer.stop_spinner()
+                progress_indicator.stop()
                 self._renderer.print_error(f"LLM Error: {e}")
                 return
             finally:
                 self._renderer.stop_spinner()
+                progress_indicator.stop()
             
-            # Check for empty response
-            if not raw_response.strip():
-                self._renderer.print_warning("Model returned empty response. Try again.")
+            # Check for empty response using ResponseValidator
+            # Requirements: 3.1, 3.2, 3.3 - Handle empty responses with retry
+            retry_decision = response_validator.should_retry(raw_response, retry_count)
+            if retry_decision.should_retry:
+                retry_count += 1
+                continue
+            elif response_validator.is_empty(raw_response):
+                # Retries exhausted
+                if retry_decision.user_message:
+                    self._renderer.print_warning(retry_decision.user_message)
+                else:
+                    self._renderer.print_warning("Model returned empty response. Try again.")
                 return
             
             # Parse think tags from raw response
@@ -860,32 +939,10 @@ class CLI:
             display_content = re.sub(r'[┏┓┗┛┃━]+', '', display_content)
             display_content = display_content.strip()
             
-            # Deduplicate repeated content (model sometimes outputs same text multiple times)
-            # First, check for large repeated blocks (paragraphs)
-            paragraphs = re.split(r'\n\s*\n', display_content)
-            seen_paragraphs = set()
-            unique_paragraphs = []
-            for para in paragraphs:
-                para_key = para.strip().lower()[:200]  # Use first 200 chars as key
-                if para_key and para_key not in seen_paragraphs:
-                    seen_paragraphs.add(para_key)
-                    unique_paragraphs.append(para)
-                elif not para_key:
-                    unique_paragraphs.append(para)
-            display_content = '\n\n'.join(unique_paragraphs)
-            
-            # Then deduplicate individual lines
-            lines = display_content.split('\n')
-            seen_lines = set()
-            unique_lines = []
-            for line in lines:
-                line_key = line.strip().lower()
-                if line_key and line_key not in seen_lines:
-                    seen_lines.add(line_key)
-                    unique_lines.append(line)
-                elif not line_key:  # Keep empty lines for formatting
-                    unique_lines.append(line)
-            display_content = '\n'.join(unique_lines)
+            # Deduplicate repeated content using ChunkDeduplicator
+            # Requirements: 5.2 - Display content incrementally without duplication
+            # Handles both paragraph-level and line-level deduplication
+            display_content = chunk_deduplicator.deduplicate_content(display_content)
             
             # Execute parsed tool calls FIRST with consistent visual feedback
             tool_results = []
@@ -954,9 +1011,10 @@ class CLI:
             )
             
             # If still no useful content after tool calls, prompt for a real response
-            if is_useless_response and iteration >= 0:
+            # Requirements: 3.1, 3.2 - Use ResponseValidator for empty/substantive checks
+            if is_useless_response:
                 # Limit summary prompts to avoid infinite loops
-                if iteration >= max_iterations - 1:
+                if iteration_controller.is_at_max_iterations():
                     self._renderer.print_warning("Model did not provide a useful response.")
                     break
                 # If we executed tools but got no response, ask for one
@@ -975,60 +1033,21 @@ class CLI:
                 })
                 continue
             
-            # Check if model said it would do something but didn't follow through
-            # Common patterns: "Let me...", "I'll...", "I will...", "Now I'll..."
-            incomplete_patterns = [
-                r"(?i)\blet me\b.*\b(check|look|analyze|examine|read|list|search|find|create|write|make)\b",
-                r"(?i)\bi'?ll\b.*\b(check|look|analyze|examine|read|list|search|find|create|write|make)\b",
-                r"(?i)\bi will\b.*\b(check|look|analyze|examine|read|list|search|find|create|write|make)\b",
-                r"(?i)\bfirst,?\s+i'?ll\b",
-                r"(?i)\blet's\b.*\b(check|look|analyze|examine|read|list|search|find|create|write|make)\b",
-                r"(?i)\bnow i'?ll\b.*\b(create|write|make|add)\b",
-                r"(?i)\bnext,?\s+i'?ll\b",
-            ]
+            # Use CompletionDetector to check for completion status
+            # Requirements: 1.1, 1.2, 1.3 - Completion detection using new component
+            tool_calls_made = bool(tool_results)
+            completion_result = completion_detector.is_complete(final_content, tool_calls_made)
             
-            # Check if model claims it already answered but response is too short
-            # (hallucinating that it provided analysis when it didn't)
-            hallucination_patterns = [
-                r"(?i)\bi'?ve (already|just) (completed|provided|given|done|finished)",
-                r"(?i)\b(already|just) (completed|provided|given|done|finished).*analysis",
-                r"(?i)\bbased on my (previous|earlier) (analysis|exploration|review)",
-                r"(?i)\bas (i|I) (mentioned|said|explained|described) (earlier|before|above)",
-            ]
-            
-            is_incomplete = False
-            is_hallucinating = False
-            
-            if final_content and iteration < max_iterations - 1:
-                for pattern in incomplete_patterns:
-                    if re.search(pattern, final_content):
-                        is_incomplete = True
-                        break
-                
-                # Check for hallucination - model claims it answered but response is short
-                if len(final_content) < 500:  # Real analysis should be longer
-                    for pattern in hallucination_patterns:
-                        if re.search(pattern, final_content):
-                            is_hallucinating = True
-                            break
-            
-            # If model said it would do something but didn't call tools, prompt to continue
-            if is_incomplete and not tool_results:
-                messages.append({"role": "assistant", "content": content})
-                messages.append({
-                    "role": "user",
-                    "content": "Please proceed with the action you mentioned. Use the available tools (list_directory, read_file, etc.) to complete the task."
-                })
-                continue
-            
-            # If model is hallucinating that it already answered, force it to actually answer
-            if is_hallucinating:
-                messages.append({"role": "assistant", "content": content})
-                messages.append({
-                    "role": "user",
-                    "content": "You have NOT provided any analysis yet - the user has not seen any analysis from you. Please provide your actual detailed analysis NOW based on the files you read."
-                })
-                continue
+            # If not complete, handle based on reason
+            if not completion_result.is_complete and completion_result.should_continue:
+                # Check if we're not at max iterations
+                if not iteration_controller.is_at_max_iterations():
+                    messages.append({"role": "assistant", "content": content})
+                    messages.append({
+                        "role": "user",
+                        "content": completion_result.continuation_prompt or "Please continue."
+                    })
+                    continue
             
             # Print final response panel only if not already printed during streaming
             if final_content and not self._renderer.was_response_printed():
@@ -1208,9 +1227,25 @@ class CLI:
         return result[:max_length] + "..."
     
     async def _get_response_with_tools(self, provider, context: list, session, max_iterations: int = 10) -> None:
-        """Get response from LLM with tool calling support and streaming reasoning."""
+        """Get response from LLM with tool calling support and streaming reasoning.
+        
+        Uses CompletionDetector, ResponseValidator, and IterationController for
+        robust completion detection and loop management.
+        
+        Requirements: 1.1, 1.2, 1.3, 1.4, 3.1, 3.2, 3.3, 4.1, 4.2, 4.3, 4.4
+        """
         messages = context.copy()
-        iteration = 0
+        
+        # Initialize new components for completion detection and loop management
+        # Requirements: 1.1, 1.2, 1.3 - Completion detection
+        completion_detector = CompletionDetector()
+        # Requirements: 3.1, 3.2, 3.3 - Response validation and retry
+        response_validator = ResponseValidator()
+        # Requirements: 1.4 - Iteration control with max iterations warning
+        iteration_controller = IterationController(max_iterations=max_iterations)
+        
+        # Track retry count for empty responses
+        retry_count = 0
         
         # Get tools filtered by current mode
         mode_slug = self._get_session_mode(session)
@@ -1220,8 +1255,16 @@ class CLI:
         # Convert to OpenAI format for native tool calling
         tools_for_provider = [tool.to_openai_format() for tool in filtered_tools]
         
-        while iteration < max_iterations:
-            iteration += 1
+        while True:
+            # Track iteration start
+            # Requirements: 1.4 - Track iterations for max limit
+            iteration_controller.on_iteration_start()
+            
+            # Check if we've hit max iterations
+            if iteration_controller.is_at_max_iterations():
+                warning_msg = iteration_controller.on_max_iterations_reached()
+                self._renderer.print_warning(warning_msg)
+                break
             
             # Start live reasoning display (handles both thinking indicator and streaming)
             self._renderer.start_live_reasoning()
@@ -1293,6 +1336,18 @@ class CLI:
                 
                 # No tool calls - continue streaming for real-time reasoning display
                 
+                # Initialize streaming progress indicator for extended silence detection
+                # Requirements: 5.1, 5.4 - Show "still thinking" indicator for extended silence
+                progress_config = StreamingProgressConfig(
+                    thinking_timeout_seconds=5.0,
+                    show_cancel_hint=True
+                )
+                progress_indicator = StreamingProgressIndicator(
+                    self._renderer.console,
+                    config=progress_config
+                )
+                progress_indicator.start()
+                
                 try:
                     async for chunk in provider.chat_stream(
                         messages=messages,
@@ -1301,7 +1356,11 @@ class CLI:
                         max_tokens=self._config.llm.max_tokens
                     ):
                         self._renderer.update_live_stream(chunk.content)
+                        # Record content arrival to reset timeout timer
+                        # Requirements: 5.4 - Track content arrival for timeout detection
+                        progress_indicator.on_content_received()
                 finally:
+                    progress_indicator.stop()
                     response_content, reasoning_content = self._renderer.stop_live_stream()
                 
                 # If model put response in thinking, use reasoning as response
@@ -1311,33 +1370,21 @@ class CLI:
                         response_content = reasoning_content
                     reasoning_content = ""
                 
-                # Check if model said it would do something but didn't follow through
-                # Common patterns: "Let me...", "I'll...", "I will...", "Now I'll..."
-                incomplete_patterns = [
-                    r"(?i)\blet me\b.*\b(check|look|analyze|examine|read|list|search|find|create|write|make)\b",
-                    r"(?i)\bi'?ll\b.*\b(check|look|analyze|examine|read|list|search|find|create|write|make)\b",
-                    r"(?i)\bi will\b.*\b(check|look|analyze|examine|read|list|search|find|create|write|make)\b",
-                    r"(?i)\bfirst,?\s+i'?ll\b",
-                    r"(?i)\blet's\b.*\b(check|look|analyze|examine|read|list|search|find|create|write|make)\b",
-                    r"(?i)\bnow i'?ll\b.*\b(create|write|make|add)\b",
-                    r"(?i)\bnext,?\s+i'?ll\b",
-                ]
+                # Use CompletionDetector to check for completion status
+                # Requirements: 1.1, 1.2, 1.3 - Completion detection using new component
+                # Note: tool_calls_made is False here since we're in the no-tool-calls branch
+                completion_result = completion_detector.is_complete(response_content, tool_calls_made=False)
                 
-                is_incomplete = False
-                if response_content and iteration < max_iterations:
-                    for pattern in incomplete_patterns:
-                        if re.search(pattern, response_content):
-                            is_incomplete = True
-                            break
-                
-                # If model said it would do something but didn't call tools, prompt to continue
-                if is_incomplete:
-                    messages.append({"role": "assistant", "content": response_content})
-                    messages.append({
-                        "role": "user",
-                        "content": "Please proceed with the action you mentioned. Use the available tools to complete the task."
-                    })
-                    continue
+                # If not complete, handle based on reason
+                if not completion_result.is_complete and completion_result.should_continue:
+                    # Check if we're not at max iterations
+                    if not iteration_controller.is_at_max_iterations():
+                        messages.append({"role": "assistant", "content": response_content})
+                        messages.append({
+                            "role": "user",
+                            "content": completion_result.continuation_prompt or "Please continue."
+                        })
+                        continue
                 
                 # Print final response panel only if not already printed during streaming
                 if response_content and not self._renderer.was_response_printed():
@@ -1367,6 +1414,3 @@ class CLI:
             except Exception as e:
                 self._renderer.stop_live_stream()
                 raise e
-        
-        if iteration >= max_iterations:
-            self._renderer.print_warning("Reached maximum tool iterations")

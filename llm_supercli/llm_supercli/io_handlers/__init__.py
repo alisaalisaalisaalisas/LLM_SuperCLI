@@ -3,6 +3,13 @@ from .bash_runner import BashRunner, run_command
 from .file_loader import FileLoader, load_file
 from .clipboard import ClipboardManager, get_clipboard, set_clipboard
 from .deduplicator import OutputDeduplicator, deduplicate_content, get_deduplicator
+from .chunk_deduplicator import (
+    ChunkDeduplicator,
+    ChunkDeduplicationResult,
+    get_chunk_deduplicator,
+    deduplicate_streaming_chunk,
+    reset_chunk_deduplicator,
+)
 from .project_analyzer import (
     ProjectAnalysisDetector,
     ProjectAnalysisRequest,
@@ -45,6 +52,9 @@ __all__ = [
     'FileLoader', 'load_file',
     'ClipboardManager', 'get_clipboard', 'set_clipboard',
     'OutputDeduplicator', 'deduplicate_content', 'get_deduplicator',
+    # Chunk deduplication for streaming
+    'ChunkDeduplicator', 'ChunkDeduplicationResult',
+    'get_chunk_deduplicator', 'deduplicate_streaming_chunk', 'reset_chunk_deduplicator',
     # Project analysis enforcement
     'ProjectAnalysisDetector', 'ProjectAnalysisRequest',
     'RecursiveDirectoryScanner', 'DirectoryTree',

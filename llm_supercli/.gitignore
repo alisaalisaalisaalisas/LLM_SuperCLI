@@ -54,3 +54,7 @@ mcp_servers.json
 
 # Hypothesis (property-based testing cache)
 .hypothesis/
+
+# Allure test reporting
+allure-results/
+allure-report/

@@ -4,6 +4,7 @@ Property-based tests for tool catalog.
 Tests correctness properties defined in the design document using hypothesis.
 """
 
+import allure
 import pytest
 from hypothesis import given, settings, strategies as st, assume
 
@@ -94,6 +95,9 @@ def mode_config_strategy(draw):
 
 
 # **Feature: prompt-system-refactor, Property 3: Mode tool filtering correctness**
+@allure.feature("Tool Catalog")
+@allure.story("Mode tool filtering correctness")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(
     tools=tool_list_strategy(min_size=1, max_size=20),
@@ -141,6 +145,9 @@ def test_mode_tool_filtering_correctness(tools: list[ToolDefinition], mode: Mode
 
 
 # **Feature: prompt-system-refactor, Property 3: Mode tool filtering correctness**
+@allure.feature("Tool Catalog")
+@allure.story("Disabled tools excluded from filtering")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(
     tools=tool_list_strategy(min_size=1, max_size=20),
@@ -181,6 +188,9 @@ def test_disabled_tools_excluded_from_filtering(
 
 
 # **Feature: prompt-system-refactor, Property 3: Mode tool filtering correctness**
+@allure.feature("Tool Catalog")
+@allure.story("Empty tool groups returns empty")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(
     tools=tool_list_strategy(min_size=1, max_size=20),
@@ -251,6 +261,9 @@ def safe_tool_list_strategy(draw, min_size=0, max_size=10):
 
 
 # **Feature: prompt-system-refactor, Property 7: Protocol-appropriate tool syntax**
+@allure.feature("Tool Catalog")
+@allure.story("Native protocol no XML syntax")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(
     tools=safe_tool_list_strategy(min_size=1, max_size=10),
@@ -300,6 +313,9 @@ def test_native_protocol_no_xml_syntax(tools: list[ToolDefinition]):
 
 # **Feature: qwen-tool-context-fix, Property 5: Tool syntax rendering contains tool names**
 # **Validates: Requirements 2.2**
+@allure.feature("Tool Catalog")
+@allure.story("Tool syntax rendering contains tool names")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(
     tools=tool_list_strategy(min_size=1, max_size=10),
@@ -360,6 +376,9 @@ def test_tool_syntax_rendering_contains_tool_names(tools: list[ToolDefinition]):
 
 
 # **Feature: qwen-tool-context-fix, Property 5: Tool syntax rendering contains tool names**
+@allure.feature("Tool Catalog")
+@allure.story("Protocol consistency")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(
     tools=tool_list_strategy(min_size=1, max_size=10),
@@ -483,6 +502,9 @@ def tool_list_with_parameters_strategy(draw, min_size=1, max_size=5):
 
 # **Feature: qwen-tool-context-fix, Property 6: Rendered parameters match tool definitions**
 # **Validates: Requirements 2.4**
+@allure.feature("Tool Catalog")
+@allure.story("Rendered parameters match tool definitions")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(
     tools=tool_list_with_parameters_strategy(min_size=1, max_size=5),

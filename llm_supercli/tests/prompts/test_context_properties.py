@@ -8,6 +8,7 @@ import os
 import tempfile
 from pathlib import Path
 
+import allure
 import pytest
 from hypothesis import given, settings, strategies as st, assume
 
@@ -37,6 +38,9 @@ def is_valid_dirname(name: str) -> bool:
 
 
 # **Feature: prompt-system-refactor, Property 9: Environment context freshness**
+@allure.feature("Context Builder")
+@allure.story("Environment context freshness")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(subdir_name=st.text(
     alphabet=st.characters(whitelist_categories=('L', 'N'), whitelist_characters='_-'),
@@ -93,6 +97,9 @@ def test_environment_context_freshness(subdir_name: str):
 
 
 # **Feature: prompt-system-refactor, Property 6: Variable interpolation completeness**
+@allure.feature("Context Builder")
+@allure.story("Variable interpolation completeness")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(
     var_names=st.lists(
@@ -158,6 +165,9 @@ def test_variable_interpolation_completeness(var_names: list[str], var_values: l
 
 
 # Additional test for required variables
+@allure.feature("Context Builder")
+@allure.story("Required variable raises error")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(
     var_name=st.text(
@@ -182,6 +192,9 @@ def test_required_variable_raises_error(var_name: str):
 
 
 # Test for optional variables (default behavior)
+@allure.feature("Context Builder")
+@allure.story("Optional variable replaced with empty")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(
     var_name=st.text(

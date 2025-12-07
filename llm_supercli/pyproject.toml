@@ -40,6 +40,7 @@ dev = [
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0",
     "hypothesis>=6.0.0",
+    "allure-pytest>=2.13.0",
     "mypy>=1.0.0",
     "ruff>=0.1.0",
     "black>=23.0.0",
@@ -79,6 +80,7 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+addopts = "--alluredir=allure-results"
 
 [tool.black]
 line-length = 100

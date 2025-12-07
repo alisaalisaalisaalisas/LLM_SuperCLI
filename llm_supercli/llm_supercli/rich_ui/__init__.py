@@ -32,6 +32,11 @@ from .skipped_tool_detector import (
     get_skipped_tool_detector,
     detect_skipped_tools,
 )
+from .streaming_progress import (
+    StreamingProgressIndicator,
+    StreamingProgressConfig,
+    DEFAULT_THINKING_TIMEOUT,
+)
 
 __all__ = [
     'RichRenderer', 'get_renderer',
@@ -67,4 +72,6 @@ __all__ = [
     'ReasoningDisplay', 'ReasoningChunk', 'get_reasoning_display', 'display_reasoning',
     # Skipped tool detector
     'SkippedToolDetector', 'SkippedToolDetection', 'get_skipped_tool_detector', 'detect_skipped_tools',
+    # Streaming progress indicator
+    'StreamingProgressIndicator', 'StreamingProgressConfig', 'DEFAULT_THINKING_TIMEOUT',
 ]

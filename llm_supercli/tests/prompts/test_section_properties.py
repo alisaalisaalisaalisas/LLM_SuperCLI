@@ -4,6 +4,7 @@ Property-based tests for prompt sections.
 Tests correctness properties defined in the design document using hypothesis.
 """
 
+import allure
 import pytest
 from hypothesis import given, settings, strategies as st
 from dataclasses import dataclass
@@ -80,6 +81,9 @@ def create_test_context() -> SectionContext:
 
 
 # **Feature: prompt-system-refactor, Property 1: Section ordering determinism**
+@allure.feature("Prompt Sections")
+@allure.story("Section ordering determinism")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(sections=unique_sections_strategy(min_size=1, max_size=10))
 def test_section_ordering_deterministic(sections: list[ConcreteSection]):
@@ -170,6 +174,9 @@ def mutable_sections_strategy(draw, min_size=2, max_size=10):
 
 
 # **Feature: prompt-system-refactor, Property 2: Section isolation**
+@allure.feature("Prompt Sections")
+@allure.story("Section isolation")
+@allure.severity(allure.severity_level.CRITICAL)
 @settings(max_examples=100)
 @given(
     sections=mutable_sections_strategy(min_size=2, max_size=10),
