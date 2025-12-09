@@ -39,9 +39,9 @@ class IterationController:
     - 1.4: Display warning and allow manual continuation at max iterations
     """
     
-    DEFAULT_MAX_ITERATIONS: int = 15
+    DEFAULT_MAX_ITERATIONS: int = 50
     
-    def __init__(self, max_iterations: int = 15) -> None:
+    def __init__(self, max_iterations: int = DEFAULT_MAX_ITERATIONS) -> None:
         """Initialize the iteration controller.
         
         Args:
