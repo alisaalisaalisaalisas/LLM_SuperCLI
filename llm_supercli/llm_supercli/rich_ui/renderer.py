@@ -156,38 +156,32 @@ class RichRenderer:
         if role == "assistant":
             content = self._deduplicator.deduplicate(content)
         
-        # Role-specific icons and styles
         icon_map = {
             "user": "👤",
             "assistant": "🤖",
             "system": "⚙️",
         }
-        
-        title_style_map = {
-            "user": "dim",
-            "assistant": "bold cyan",
-            "system": "dim italic",
+        color_map = {
+            "user": "cyan",
+            "assistant": "green",
+            "system": "grey62",
         }
-        
         icon = icon_map.get(role, "")
-        title_style = title_style_map.get(role, "dim")
-        
-        # Build header with icon and role name
-        header = f"{icon} {role.capitalize()}"
+        body_style = color_map.get(role, "white")
+        header = Text()
+        header.append(f"{icon} {role.capitalize()}", style=body_style)
         if show_timestamp and timestamp:
-            header += f" [{timestamp}]"
+            header.append(" ")
+            header.append(f"[{timestamp}]", style="dim")
+        self._console.print(header)
         
-        # Print header without border
-        self._console.print(f"[{title_style}]{header}[/{title_style}]")
-        
-        # Render content based on role (markdown for assistant)
         if role == "assistant":
             self._console.print(Markdown(content))
         else:
-            self._console.print(Text(content))
+            self._console.print(Text(content, style=body_style))
         
-        # Add spacing
-        self._console.print()
+        divider = Text("─" * min(60, self._console.width or 60), style="grey23")
+        self._console.print(divider)
     
     def print_reasoning(self, content: str) -> None:
         """
@@ -338,6 +332,21 @@ class RichRenderer:
         # Print message with info styling
         self._console.print(Text(message, style=self._theme_manager.get_style("info_message")))
         self._console.print()  # Add spacing
+
+    def print_model_ribbon(self, provider: str, model: str, tier: str, is_free: bool = False) -> None:
+        """Render compact status ribbon for current provider/model."""
+        tier_colors = {
+            "low": "grey62",
+            "medium": "cyan",
+            "high": "green",
+            "xhigh": "magenta",
+        }
+        ribbon = Text()
+        ribbon.append(f"{provider.title()} · {model} ", style="dim")
+        if is_free:
+            ribbon.append("FREE ", style="green")
+        ribbon.append(tier.upper(), style=tier_colors.get(tier, "cyan"))
+        self._console.print(ribbon)
     
     def print_table(
         self,
