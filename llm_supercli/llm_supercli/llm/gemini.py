@@ -214,7 +214,7 @@ class GeminiProvider(LLMProvider):
                 raise ValueError(
                     f"Token refresh failed: {error_msg}\n"
                     "Your Gemini session may have expired.\n"
-                    "Please re-login with: /login gemini"
+                    "Please re-launch gemini and restart session: gemini auth login, /quit"
                 )
     
     async def _call_endpoint(
